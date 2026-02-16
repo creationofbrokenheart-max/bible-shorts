@@ -44,8 +44,7 @@ def run_ffmpeg(cmd):
 
 def ffmpeg_escape_text(text: str) -> str:
     """
-    Escape text for ffmpeg drawtext (inside single quotes).
-    Keep it minimal to avoid breaking the filter graph.[web:387][web:391]
+    Escape text for ffmpeg drawtext (inside single quotes).[web:387][web:391]
     """
     if not text:
         return ""
@@ -81,9 +80,12 @@ def main() -> int:
 
         overlay_text = ffmpeg_escape_text(summary_en)
 
+        # Scale/crop to 1080x1920, then overlay dark layer, then draw text.[web:394][web:395]
         filter_complex = (
+            f"[0:v]scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=decrease,"
+            f"pad={VIDEO_WIDTH}:{VIDEO_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black@0.0[scaled];"
             f"color=black@0.5:size={VIDEO_WIDTH}x{VIDEO_HEIGHT} [blk];"
-            f"[0:v][blk]overlay=0:0:shortest=1[base];"
+            f"[scaled][blk]overlay=0:0:shortest=1[base];"
             f"[base]drawtext=fontfile='{VIDEO_FONT_PATH}':"
             f"text='{overlay_text}':"
             "fontcolor=white:fontsize=52:line_spacing=10:box=1:boxcolor=black@0.6:boxborderw=20:"
@@ -110,7 +112,6 @@ def main() -> int:
         ]
 
         run_ffmpeg(cmd_main)
-
         os.replace(tmp_main, main_out)
 
         data["video_path"] = str(main_out.relative_to(BASE_DIR))
