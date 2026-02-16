@@ -8,7 +8,7 @@ import shlex
 import logging
 import subprocess
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List, Tuple
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -28,7 +28,6 @@ VIDEO_FONT_PATH = os.getenv(
 
 VIDEO_WIDTH = 1080
 VIDEO_HEIGHT = 1920
-MAX_DURATION = 20  # hard upper bound in seconds
 
 
 def load_current_verse() -> Dict[str, Any]:
@@ -38,9 +37,58 @@ def load_current_verse() -> Dict[str, Any]:
         return json.load(f)
 
 
-def run_ffmpeg(cmd):
-    logger.info("Running ffmpeg: %s", " ".join(shlex.quote(c) for c in cmd))
-    subprocess.run(cmd, check=True)
+def run_subprocess(cmd: List[str]) -> subprocess.CompletedProcess:
+    logger.info("Running: %s", " ".join(shlex.quote(c) for c in cmd))
+    return subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+
+def get_audio_duration(audio_path: str) -> float:
+    """
+    Use ffprobe to get audio duration in seconds.
+    """
+    cmd = [
+        "ffprobe",
+        "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        audio_path,
+    ]
+    result = run_subprocess(cmd)
+    dur_str = result.stdout.strip()
+    try:
+        return float(dur_str)
+    except ValueError:
+        logger.warning("Could not parse duration '%s', defaulting to 5s", dur_str)
+        return 5.0
+
+
+def ffmpeg_escape_text(text: str) -> str:
+    if not text:
+        return ""
+    text = text.replace("\\", "\\\\")
+    text = text.replace("'", r"\'")
+    text = text.replace("%", r"\%")
+    text = text.replace("\n", " ")
+    return text
+
+
+def build_word_segments(text: str, total_duration: float) -> List[Tuple[str, float, float]]:
+    """
+    Split text into words and assign equal time slices across total_duration.
+    """
+    words = [w for w in text.split() if w.strip()]
+    if not words:
+        return []
+
+    per_word = total_duration / len(words)
+    segments: List[Tuple[str, float, float]] = []
+    t = 0.0
+    for w in words:
+        start = t
+        end = min(total_duration, t + per_word)
+        segments.append((w, start, end))
+        t = end
+    return segments
 
 
 def main() -> int:
@@ -58,7 +106,6 @@ def main() -> int:
         audio_path = str((BASE_DIR / data["audio_path"]).resolve())
         reference = data["reference"]
 
-        # Text to display: summary_en or summary
         text = data.get("summary_en") or data.get("summary") or ""
         if not text:
             raise ValueError("current_verse.json has no text field (summary_en/summary missing)")
@@ -66,25 +113,33 @@ def main() -> int:
         OUTPUT_VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
         TMP_DIR.mkdir(parents=True, exist_ok=True)
 
-        # Write text into a temp file for drawtext=textfile=
-        textfile_path = TMP_DIR / "overlay_text.txt"
-        with textfile_path.open("w", encoding="utf-8") as f:
-            f.write(text)
-
         safe_ref = reference.replace(" ", "_").replace(":", "-")
         main_out = OUTPUT_VIDEOS_DIR / f"{safe_ref}.mp4"
         tmp_main = TMP_DIR / f"{safe_ref}_main.mp4"
 
-        logger.info("[gen_video] overlay text file: %s", textfile_path)
+        # Get audio duration and build karaoke word segments
+        duration = get_audio_duration(audio_path)
+        logger.info("[gen_video] audio duration: %.2fs", duration)
+        segments = build_word_segments(text, duration)
 
-        # Use textfile= to avoid escaping issues.[web:394][web:408]
+        # Build drawtext chain: one word at a time
+        draw_filters: List[str] = []
+        for word, start, end in segments:
+            w_esc = ffmpeg_escape_text(word)
+            draw_filters.append(
+                f"drawtext=fontfile='{VIDEO_FONT_PATH}':"
+                f"text='{w_esc}':"
+                "fontcolor=white:fontsize=80:box=1:boxcolor=black@0.7:boxborderw=20:"
+                "x=(w-text_w)/2:y=(h-text_h)/2:"
+                f"enable='between(t,{start:.2f},{end:.2f})'"
+            )
+        draw_chain = ",".join(draw_filters) if draw_filters else "null"
+
+        # Filter graph: scale bg -> base, apply karaoke drawtexts -> vmain, audio passthrough
         filter_complex = (
             f"[0:v]scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=decrease,"
             f"pad={VIDEO_WIDTH}:{VIDEO_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black@0.0[base];"
-            f"[base]drawtext=fontfile='{VIDEO_FONT_PATH}':"
-            f"textfile='{textfile_path}':"
-            "fontcolor=white:fontsize=52:line_spacing=10:box=1:boxcolor=black@0.6:boxborderw=20:"
-            "x=(w-text_w)/2:y=(h-text_h)/2[vmain];"
+            f"[base]{draw_chain}[vmain];"
             "[1:a]anull[a]"
         )
 
@@ -101,12 +156,12 @@ def main() -> int:
             "-pix_fmt", "yuv420p",
             "-c:a", "aac",
             "-b:a", "192k",
-            "-t", str(MAX_DURATION),
+            "-t", f"{duration + 1:.2f}",  # a little tail after audio
             "-shortest",
             str(tmp_main),
         ]
 
-        run_ffmpeg(cmd_main)
+        run_subprocess(cmd_main)
         os.replace(tmp_main, main_out)
 
         data["video_path"] = str(main_out.relative_to(BASE_DIR))
