@@ -158,7 +158,7 @@ def main() -> int:
              f.write(resp.content)
 
 
-        verse_data["image_path"] = str(out_path)
+        verse_data["background_image_path"] = str(out_path)
         save_current_verse(verse_data)
         logger.info("[gen_image] saved %s and updated current_verse.json", out_path)
 
