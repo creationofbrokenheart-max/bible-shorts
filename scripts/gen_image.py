@@ -1,114 +1,105 @@
-import json
 import os
+import json
+import random
+import requests
 from pathlib import Path
+from typing import Dict, Any
 
-import replicate  # pip install replicate
+from dotenv import load_dotenv
 
-CURRENT_VERSE_PATH = Path("current_verse.json")
-IMAGES_DIR = Path("outputs/images")
+load_dotenv()
 
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-# SDXL version ID from Replicate docs[web:287][web:293]
-SDXL_VERSION = os.getenv(
-    "REPLICATE_SDXL_VERSION",
-    "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b",
-)
+PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
+PEXELS_SEARCH_URL = "https://api.pexels.com/v1/search"
+
+BASE_DIR = Path(__file__).resolve().parent
+OUTPUT_IMAGES_DIR = BASE_DIR / "outputs" / "images"
+CURRENT_VERSE_JSON = BASE_DIR / "current_verse.json"
 
 
-def load_current_verse():
-    if not CURRENT_VERSE_PATH.exists():
-        raise FileNotFoundError(
-            f"{CURRENT_VERSE_PATH} not found. Run select_verse.py and fetch_verse_text.py first."
-        )
-    with CURRENT_VERSE_PATH.open("r", encoding="utf-8") as f:
+def load_current_verse() -> Dict[str, Any]:
+    if not CURRENT_VERSE_JSON.exists():
+        raise FileNotFoundError(f"{CURRENT_VERSE_JSON} not found")
+    with CURRENT_VERSE_JSON.open("r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def save_current_verse(data: dict):
-    with CURRENT_VERSE_PATH.open("w", encoding="utf-8") as f:
+def save_current_verse(data: Dict[str, Any]) -> None:
+    with CURRENT_VERSE_JSON.open("w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def safe_ref(ref: str) -> str:
-    return (
-        ref.replace(" ", "_")
-        .replace(":", "-")
-        .replace("/", "_")
+def get_reference_key(verse_data: Dict[str, Any]) -> str:
+    # Prefer an explicit key if you already store it
+    ref_key = verse_data.get("reference_key")
+    if ref_key:
+        return ref_key
+
+    # Fallback: sanitize the reference, e.g. "John 3:16" -> "John3_16"
+    ref = verse_data.get("reference", "unknown_ref")
+    ref_key = (
+        ref.replace(" ", "")
+           .replace(":", "_")
+           .replace(",", "_")
+           .replace(";", "_")
     )
+    return ref_key
 
 
-def build_prompt(data: dict) -> str:
-    reference = data.get("reference") or data.get("verse_ref") or ""
-    summary_en = data.get("summary_en") or data.get("verse_en") or ""
+def fetch_pexels_forest_image(ref_key: str) -> str:
+    """
+    Download one vertical forest image from Pexels
+    and save to outputs/images/<ref_key>.jpg
+    """
+    if not PEXELS_API_KEY:
+        raise RuntimeError("PEXELS_API_KEY not set in environment")
 
-    prompt = (
-        f"cinematic bible illustration, ultra detailed, 4k, "
-        f"scene inspired by {reference} from the Bible, "
-        f"theme: {summary_en}, "
-        f"dark background, rich shadows, high contrast, moody lighting, "
-        f"dramatic light rays, volumetric lighting, no text, no watermark"
-    )
-    return prompt
+    headers = {
+        "Authorization": PEXELS_API_KEY
+    }
 
+    params = {
+        "query": "dark forest night, cinematic, mystical",  # you can tweak this
+        "per_page": 15,
+        "orientation": "portrait"  # better for 9:16 reels
+    }
 
-def call_replicate_sdxl(prompt: str, output_path: Path):
-    if not REPLICATE_API_TOKEN:
-        raise RuntimeError("REPLICATE_API_TOKEN is not set.")
-
-    client = replicate.Client(api_token=REPLICATE_API_TOKEN)
-
-    print("Calling Replicate SDXL with prompt:")
-    print(prompt)
-
-    # SDXL input options from Replicate examples[web:292][web:295]
-    output = client.run(
-        SDXL_VERSION,
-        input={
-            "prompt": prompt,
-            "negative_prompt": "text, watermark, logo, words, letters, caption, lowres, blurry, distorted, ugly, oversaturated",
-            "width": 768,
-            "height": 1344,  # ~9:16
-            "num_inference_steps": 30,
-            "guidance_scale": 7.5,
-        },
-    )
-
-    # output is typically a list of URLs; download the first
-    if not output:
-        raise RuntimeError(f"Replicate SDXL returned empty output: {output}")
-
-    image_url = output[0]
-    print("Downloading image from:", image_url)
-
-    import requests
-
-    resp = requests.get(image_url, timeout=120)
+    resp = requests.get(PEXELS_SEARCH_URL, headers=headers, params=params, timeout=10)
     resp.raise_for_status()
+    data = resp.json()
+    photos = data.get("photos", [])
+    if not photos:
+        raise RuntimeError("No Pexels photos found for query")
 
-    with output_path.open("wb") as f:
-        f.write(resp.content)
+    photo = random.choice(photos)
+    src = photo["src"].get("large2x") or photo["src"].get("original")
+    if not src:
+        raise RuntimeError("Selected Pexels photo has no usable src URL")
+
+    img_resp = requests.get(src, timeout=20)
+    img_resp.raise_for_status()
+
+    OUTPUT_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = OUTPUT_IMAGES_DIR / f"{ref_key}.jpg"
+    with out_path.open("wb") as f:
+        f.write(img_resp.content)
+
+    return str(out_path)
 
 
 def main():
-    data = load_current_verse()
+    verse_data = load_current_verse()
+    ref_key = get_reference_key(verse_data)
 
-    ref = data.get("reference") or data.get("verse_ref")
-    if not ref:
-        raise ValueError("current_verse.json must contain 'reference' or 'verse_ref'.")
+    print(f"Using reference key: {ref_key}")
 
-    IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-    out_name = f"{safe_ref(ref)}.png"
-    out_path = IMAGES_DIR / out_name
+    image_path = fetch_pexels_forest_image(ref_key)
+    print(f"Saved Pexels forest image to: {image_path}")
 
-    prompt = build_prompt(data)
-    print("Generating verse-relevant image with Replicate SDXL...")
-    call_replicate_sdxl(prompt, out_path)
-
-    data["background_image_path"] = str(out_path)
-    save_current_verse(data)
-
-    print(f"Saved background image to {out_path}")
-    print("Updated current_verse.json with background_image_path.")
+    # Store image_path back into current_verse.json for the video step
+    verse_data["image_path"] = image_path
+    save_current_verse(verse_data)
+    print("Updated current_verse.json with image_path")
 
 
 if __name__ == "__main__":
