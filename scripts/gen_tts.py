@@ -8,11 +8,10 @@ import requests
 CURRENT_VERSE_JSON = Path("current_verse.json")
 OUTPUT_DIR = Path("outputs/audio")
 
-# Generic TTS settings – these are provided via GitHub Actions env.
-# Example: for CAMB.AI set API key + URL in secrets.[web:58][web:61][web:62]
 TTS_API_KEY = os.getenv("TTS_API_KEY")
-TTS_API_URL = os.getenv("TTS_API_URL")  # e.g. https://client.camb.ai/apis/tts (check docs)[web:58][web:60][web:99]
-TTS_VOICE_ID = os.getenv("TTS_VOICE_ID", "")  # optional, depending on provider
+TTS_API_URL = os.getenv("TTS_API_URL")  # e.g. https://client.camb.ai/apis/tts
+TTS_VOICE_ID = os.getenv("TTS_VOICE_ID")  # required (147332 for your English voice)
+TTS_LANGUAGE = os.getenv("TTS_LANGUAGE")  # optional; default to 1 below
 
 
 def load_current_verse():
@@ -28,20 +27,20 @@ def save_current_verse(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def build_tts_payload(text_te: str) -> dict:
+def build_tts_payload(text_en: str) -> dict:
     """
-    Build request body for CAMB.AI /apis/tts endpoint.
-    Required: text, voice_id, language.[web:58]
+    CAMB /apis/tts payload: requires text, voice_id, language.
+    We use English text (summary_en) for now.
     """
     if not TTS_VOICE_ID:
         print("TTS_VOICE_ID must be set for CAMB.AI TTS.", file=sys.stderr)
         sys.exit(1)
 
-    # For now, hard-code English language id = 1 (per CAMB docs examples).[web:58][web:62]
+    # Default English language id to 1 if not provided
     language_id = int(TTS_LANGUAGE) if TTS_LANGUAGE else 1
 
     payload = {
-        "text": text_te,
+        "text": text_en,
         "voice_id": int(TTS_VOICE_ID),
         "language": language_id,
         "project_name": "Bible English Shorts",
@@ -50,23 +49,21 @@ def build_tts_payload(text_te: str) -> dict:
         "gender": 0,
         "age": "adult",
     }
-    print(f"TTS payload being sent: {payload}")  # debug log
+    print(f"TTS payload being sent: {payload}")
     return payload
 
 
-def call_tts_api(text_te: str) -> bytes:
+def call_tts_api(text_en: str) -> bytes:
     if not TTS_API_KEY or not TTS_API_URL:
         print("TTS_API_KEY or TTS_API_URL not set in environment.", file=sys.stderr)
         sys.exit(1)
 
-    # Many APIs use either x-api-key or Authorization: Bearer.
-    # For CAMB.AI, check their docs; they show x-api-key usage.[web:58][web:61][web:62]
     headers = {
         "Content-Type": "application/json",
         "x-api-key": TTS_API_KEY,
     }
 
-    payload = build_tts_payload(text_te)
+    payload = build_tts_payload(text_en)
     print(f"Calling TTS API at: {TTS_API_URL}")
 
     try:
@@ -79,12 +76,11 @@ def call_tts_api(text_te: str) -> bytes:
         print(f"TTS API error {resp.status_code}: {resp.text}", file=sys.stderr)
         sys.exit(1)
 
-    # Some APIs return audio bytes directly;
-    # others return JSON with a URL to download.[web:58][web:60][web:63][web:64]
+    # For now, assume CAMB returns raw audio bytes or a direct audio file;
+    # if they return JSON with URL, we can extend this later.
     content_type = resp.headers.get("Content-Type", "")
     if "application/json" in content_type.lower():
         data = resp.json()
-        # Example: handle a `audio_url` field and download it
         audio_url = data.get("audio_url") or data.get("url")
         if not audio_url:
             print("No audio URL found in TTS JSON response.", file=sys.stderr)
@@ -99,14 +95,13 @@ def call_tts_api(text_te: str) -> bytes:
             sys.exit(1)
         return audio_resp.content
 
-    # If not JSON, assume raw audio bytes
     return resp.content
 
 
 def main():
     data = load_current_verse()
     reference = data.get("reference")
-    summary_en = data.get("summary_en")  # English
+    summary_en = data.get("summary_en")
 
     if not reference:
         print("current_verse.json must contain 'reference'.", file=sys.stderr)
@@ -126,7 +121,6 @@ def main():
 
     print(f"Saved TTS audio to {out_path}")
 
-    # Save path in JSON for next step (video generation)
     data["audio_path"] = str(out_path)
     save_current_verse(data)
     print("Updated current_verse.json with audio_path.")
