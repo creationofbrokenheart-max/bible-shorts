@@ -110,8 +110,7 @@ except json.JSONDecodeError:
     if not required_keys.issubset(data.keys()):
         print("LLM JSON missing required keys. Got keys:", list(data.keys()), file=sys.stderr)
         sys.exit(1)
-
-    return data
+        return data
 
 
 def main():
