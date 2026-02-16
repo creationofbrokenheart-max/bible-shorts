@@ -8,7 +8,6 @@ CURRENT_VERSE_PATH = Path("current_verse.json")
 IMAGES_DIR = Path("outputs/images")
 
 STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
-# SDXL endpoint – text-to-image
 STABILITY_URL = "https://api.stability.ai/v2beta/stable-image/generate/sd3"
 
 
@@ -54,18 +53,25 @@ def call_stability_t2i(prompt: str) -> bytes:
 
     headers = {
         "Authorization": f"Bearer {STABILITY_API_KEY}",
+        # DO NOT set Content-Type here; requests sets it for multipart
         "Accept": "application/json",
     }
 
-    # Using SD3 text prompt API – documented by Stability.[web:279]
+    # sd3 endpoint expects multipart/form-data with a 'prompt' field.[web:279]
     data = {
         "prompt": prompt,
         "output_format": "png",
-        "aspect_ratio": "9:16",  # vertical Shorts
+        "aspect_ratio": "9:16",
         "negative_prompt": "text, watermark, logo, words, letters, caption, lowres, blurry, distorted, ugly, oversaturated",
     }
 
-    resp = requests.post(STABILITY_URL, headers=headers, json=data, timeout=120)
+    resp = requests.post(
+        STABILITY_URL,
+        headers=headers,
+        data=data,
+        files={},  # no image upload, but multipart is still required
+        timeout=120,
+    )
 
     if resp.status_code != 200:
         print("Stability status:", resp.status_code)
@@ -73,7 +79,6 @@ def call_stability_t2i(prompt: str) -> bytes:
         resp.raise_for_status()
 
     resp_json = resp.json()
-    # Expect: {"image":"<base64>"} or {"images":[{"image":"..."}]}
     if "image" in resp_json:
         b64 = resp_json["image"]
     else:
@@ -97,7 +102,7 @@ def main():
     out_path = IMAGES_DIR / out_name
 
     prompt = build_prompt(data)
-    print("Requesting dark cinematic image from Stability SDXL")
+    print("Requesting dark cinematic image from Stability SD3")
     print("Prompt:", prompt)
 
     image_bytes = call_stability_t2i(prompt)
