@@ -1,0 +1,16 @@
+# HTTP requests (Bible API, HF, TTS)
+requests
+
+# Excel reading (verses.xlsx)
+openpyxl
+
+# Image handling for AI background
+Pillow
+
+# OpenAI-compatible client for Hugging Face router (LLM)
+openai
+
+# YouTube Data API client + OAuth
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2
