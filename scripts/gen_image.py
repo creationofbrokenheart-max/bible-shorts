@@ -141,7 +141,7 @@ def main() -> int:
         # You can later make this dynamic from verse topic if you want
         query = verse_data.get(
             "image_theme",
-            "forest, trees"
+            "4k wallpaper"
         )
 
         logger.info("[gen_image] reference_key=%s query=%s", ref_key, query)
