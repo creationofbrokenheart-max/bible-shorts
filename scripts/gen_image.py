@@ -8,6 +8,7 @@ CURRENT_VERSE_PATH = Path("current_verse.json")
 IMAGES_DIR = Path("outputs/images")
 
 HF_TOKEN = os.getenv("HF_TOKEN")
+# DO NOT override this to Tongyi-MAI/Z-Image when using api-inference.
 HF_T2I_MODEL = os.getenv("HF_T2I_MODEL", "stabilityai/stable-diffusion-2-1")
 
 
@@ -73,14 +74,17 @@ def call_hf_t2i(prompt: str, negative_prompt: str) -> bytes:
     }
 
     resp = requests.post(url, headers=headers, json=payload, timeout=120)
-    resp.raise_for_status()
 
-    # For image models on this endpoint, content is usually raw image bytes
+    # Debug if something goes wrong
+    if resp.status_code != 200:
+        print("HF status:", resp.status_code)
+        print("HF body:", resp.text)
+        resp.raise_for_status()
+
     if resp.headers.get("content-type", "").startswith("image/"):
         return resp.content
 
     data = resp.json()
-    # Some setups return base64 in "images"
     if isinstance(data, dict) and "images" in data and data["images"]:
         return base64.b64decode(data["images"][0])
 
