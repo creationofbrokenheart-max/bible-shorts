@@ -33,7 +33,7 @@ jobs:
         env:
           BIBLE_API_BASE: "https://bible-api.com"
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          HF_T2I_MODEL: "Tongyi-MAI/Z-Image"
+          HF_T2I_MODEL: "stabilityai/stable-diffusion-2-1"
           CAMB_API_KEY: ${{ secrets.CAMB_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           VIDEO_FONT_PATH: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
