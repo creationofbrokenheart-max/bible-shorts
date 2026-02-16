@@ -1,6 +1,7 @@
 # HTTP requests (Bible API, HF, TTS)
 requests
 huggingface_hub
+camb-ai
 
 # Excel reading (verses.xlsx)
 openpyxl
