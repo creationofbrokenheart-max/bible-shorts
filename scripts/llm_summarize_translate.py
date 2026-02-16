@@ -3,13 +3,12 @@ import os
 import sys
 from pathlib import Path
 
-from huggingface_hub import InferenceClient  # [web:22][web:24][web:110]
-
-CURRENT_VERSE_JSON = Path("current_verse.json")
+from huggingface_hub import InferenceClient
 
 HF_TOKEN = os.getenv("HF_TOKEN")
-# Standard HF model id (you can change via env HF_MODEL if you like).[web:110]
-HF_MODEL = os.getenv("HF_MODEL", "meta-llama/Llama-3.1-8B-Instruct")
+HF_MODEL = os.getenv("HF_MODEL", "mistralai/Mistral-7B-Instruct-v0.2")  # <= changed[web:104][web:109]
+
+CURRENT_VERSE_JSON = Path("current_verse.json")
 
 
 def load_current_verse():
