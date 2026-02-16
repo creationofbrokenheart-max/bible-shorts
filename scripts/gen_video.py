@@ -43,19 +43,6 @@ def run_ffmpeg(cmd):
     subprocess.run(cmd, check=True)
 
 
-def ffmpeg_escape_text(text: str) -> str:
-    """
-    Minimal escaping so text is safe in drawtext's single-quoted text value.[web:387][web:411]
-    """
-    if not text:
-        return ""
-    text = text.replace("\\", "\\\\")   # backslashes
-    text = text.replace("'", r"\'")     # single quotes
-    text = text.replace("%", r"\%")     # percent
-    text = text.replace("\n", " ")      # newlines -> space
-    return text
-
-
 def main() -> int:
     try:
         data = load_current_verse()
@@ -79,19 +66,23 @@ def main() -> int:
         OUTPUT_VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
         TMP_DIR.mkdir(parents=True, exist_ok=True)
 
+        # Write text into a temp file for drawtext=textfile=
+        textfile_path = TMP_DIR / "overlay_text.txt"
+        with textfile_path.open("w", encoding="utf-8") as f:
+            f.write(text)
+
         safe_ref = reference.replace(" ", "_").replace(":", "-")
         main_out = OUTPUT_VIDEOS_DIR / f"{safe_ref}.mp4"
         tmp_main = TMP_DIR / f"{safe_ref}_main.mp4"
 
-        overlay_text = ffmpeg_escape_text(text)
-        logger.info("[gen_video] overlay text: %s", overlay_text)
+        logger.info("[gen_video] overlay text file: %s", textfile_path)
 
-        # Scale + pad background, then caption in center, plus audio.[web:394][web:412]
+        # Use textfile= to avoid escaping issues.[web:394][web:408]
         filter_complex = (
             f"[0:v]scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=decrease,"
             f"pad={VIDEO_WIDTH}:{VIDEO_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black@0.0[base];"
             f"[base]drawtext=fontfile='{VIDEO_FONT_PATH}':"
-            f"text='{overlay_text}':"
+            f"textfile='{textfile_path}':"
             "fontcolor=white:fontsize=52:line_spacing=10:box=1:boxcolor=black@0.6:boxborderw=20:"
             "x=(w-text_w)/2:y=(h-text_h)/2[vmain];"
             "[1:a]anull[a]"
@@ -110,8 +101,8 @@ def main() -> int:
             "-pix_fmt", "yuv420p",
             "-c:a", "aac",
             "-b:a", "192k",
-            "-t", str(MAX_DURATION),  # hard cap
-            "-shortest",              # stop when audio ends, if earlier
+            "-t", str(MAX_DURATION),
+            "-shortest",
             str(tmp_main),
         ]
 
