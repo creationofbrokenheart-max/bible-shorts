@@ -38,6 +38,7 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           STABILITY_API_KEY: ${{ secrets.STABILITY_API_KEY }}
           REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           VIDEO_FONT_PATH: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
         run: |
           python scripts/select_verse.py
