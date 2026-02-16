@@ -1,16 +1,14 @@
 import json
 import os
 from pathlib import Path
-from io import BytesIO
-
-from huggingface_hub import InferenceClient  # pip install huggingface_hub
-
+import base64
+import requests
 
 CURRENT_VERSE_PATH = Path("current_verse.json")
 IMAGES_DIR = Path("outputs/images")
 
 HF_TOKEN = os.getenv("HF_TOKEN")
-HF_T2I_MODEL = os.getenv("HF_T2I_MODEL", "Tongyi-MAI/Z-Image")
+HF_T2I_MODEL = os.getenv("HF_T2I_MODEL", "stabilityai/stable-diffusion-2-1")
 
 
 def load_current_verse():
@@ -40,7 +38,7 @@ def build_prompt(data: dict) -> tuple[str, str]:
     summary_en = data.get("summary_en") or data.get("verse_en") or ""
 
     prompt = (
-        f"Cinematic Bible artwork, ultra detailed, 4K, high dynamic range. "
+        f"Cinematic Bible artwork, ultra detailed. "
         f"Scene inspired by {reference} from the Bible. "
         f"Theme: {summary_en} "
         f"dark background, rich shadows, high contrast, moody lighting, "
@@ -59,18 +57,34 @@ def call_hf_t2i(prompt: str, negative_prompt: str) -> bytes:
     if not HF_TOKEN:
         raise RuntimeError("HF_TOKEN is not set.")
 
-    client = InferenceClient(api_key=HF_TOKEN)
+    url = f"https://api-inference.huggingface.co/models/{HF_T2I_MODEL}"
+    headers = {
+        "Authorization": f"Bearer {HF_TOKEN}",
+        "Content-Type": "application/json",
+    }
 
-    # No `size` kwarg – use model default resolution
-    image = client.text_to_image(
-        prompt=prompt,
-        model=HF_T2I_MODEL,
-        negative_prompt=negative_prompt,
-    )
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "negative_prompt": negative_prompt,
+            "num_inference_steps": 30,
+            "guidance_scale": 7.5,
+        },
+    }
 
-    buf = BytesIO()
-    image.save(buf, format="PNG")
-    return buf.getvalue()
+    resp = requests.post(url, headers=headers, json=payload, timeout=120)
+    resp.raise_for_status()
+
+    # For image models on this endpoint, content is usually raw image bytes
+    if resp.headers.get("content-type", "").startswith("image/"):
+        return resp.content
+
+    data = resp.json()
+    # Some setups return base64 in "images"
+    if isinstance(data, dict) and "images" in data and data["images"]:
+        return base64.b64decode(data["images"][0])
+
+    raise RuntimeError(f"Unexpected response from HF image API: {data}")
 
 
 def main():
