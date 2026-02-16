@@ -3,13 +3,17 @@ import os
 import sys
 from pathlib import Path
 
-from huggingface_hub import InferenceClient  # HF Inference API[web:111][web:113]
+from openai import OpenAI  # OpenAI-compatible client[web:133]
 
 CURRENT_VERSE_JSON = Path("current_verse.json")
 
 HF_TOKEN = os.getenv("HF_TOKEN")
-# Use an open, non-Meta instruct model by default.[web:104][web:118]
-HF_MODEL = os.getenv("HF_MODEL", "HuggingFaceH4/zephyr-7b-beta")
+# We call the specific DeepSeek model endpoint exposed via HF router.
+DEEPSEEK_BASE_URL = os.getenv(
+    "DEEPSEEK_BASE_URL",
+    "https://router.huggingface.co/hf-inference/models/deepseek-ai/DeepSeek-V3",
+)
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-ai/DeepSeek-V3")  # name in the request body[web:127][web:130]
 
 
 def load_current_verse():
@@ -53,18 +57,19 @@ Verse (English): {verse_en}
 """.strip()
 
 
-def call_hf_llm(prompt: str) -> dict:
+def call_deepseek_llm(prompt: str) -> dict:
     if not HF_TOKEN:
         print("HF_TOKEN environment variable is not set.", file=sys.stderr)
         sys.exit(1)
 
-    client = InferenceClient(
-        model=HF_MODEL,
-        token=HF_TOKEN,
-    )  # talks directly to HF Inference API[web:111][web:113]
+    client = OpenAI(
+        base_url=DEEPSEEK_BASE_URL,  # talk directly to DeepSeek-V3 endpoint on HF[web:127][web:131]
+        api_key=HF_TOKEN,
+    )
 
     try:
-        completion = client.chat_completion(
+        completion = client.chat.completions.create(
+            model=DEEPSEEK_MODEL,
             messages=[
                 {"role": "system", "content": "You are a helpful assistant for Christian teen content creation."},
                 {"role": "user", "content": prompt},
@@ -73,10 +78,10 @@ def call_hf_llm(prompt: str) -> dict:
             temperature=0.4,
         )
     except Exception as e:
-        print(f"Error calling Hugging Face LLM: {e}", file=sys.stderr)
+        print(f"Error calling DeepSeek via Hugging Face router: {e}", file=sys.stderr)
         sys.exit(1)
 
-    content = completion.choices[0].message["content"]
+    content = completion.choices[0].message.content
 
     try:
         data = json.loads(content)
@@ -104,7 +109,7 @@ def main():
         sys.exit(1)
 
     prompt = build_prompt(verse_en=verse_en, reference=reference)
-    result = call_hf_llm(prompt)
+    result = call_deepseek_llm(prompt)
 
     current["summary_en"] = result["summary_en"]
     current["summary_te"] = result["summary_te"]
