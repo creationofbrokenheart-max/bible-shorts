@@ -12,7 +12,9 @@ MODEL = "deepseek/deepseek-r1"
 
 def load_current_verse():
     if not CURRENT_VERSE_PATH.exists():
-        raise FileNotFoundError(f"{CURRENT_VERSE_PATH} not found. Run select_verse.py and fetch_verse_text.py first.")
+        raise FileNotFoundError(
+            f"{CURRENT_VERSE_PATH} not found. Run select_verse.py and fetch_verse_text.py first."
+        )
     with CURRENT_VERSE_PATH.open("r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -24,8 +26,7 @@ def save_current_verse(data: dict):
 
 def strip_code_fence(content):
     """
-    Accept either a string or a list of strings and remove leading/trailing
-    ``` fences if present.
+    Accept either a string or a list and remove leading/trailing ``` fences.
     """
     # Normalize list -> string
     if isinstance(content, list):
@@ -36,15 +37,14 @@ def strip_code_fence(content):
 
     text = content.strip()
 
-    # If it starts with ``` treat it as fenced block
     if text.startswith("```"):
         lines = text.splitlines()
 
-        # Drop first line (``` or ```json)
+        # drop first line (``` or ```json)
         if lines:
             lines = lines[1:]
 
-        # Drop last line if it looks like ```
+        # drop last line if it looks like ```
         if lines and lines[-1].strip().startswith("```"):
             lines = lines[:-1]
 
@@ -85,7 +85,10 @@ def call_deepseek_via_openrouter(prompt: str) -> dict:
     body = {
         "model": MODEL,
         "messages": [
-            {"role": "system", "content": "You are a helpful assistant for creating Bible video shorts."},
+            {
+                "role": "system",
+                "content": "You are a helpful assistant for creating Bible video shorts.",
+            },
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.7,
@@ -95,10 +98,26 @@ def call_deepseek_via_openrouter(prompt: str) -> dict:
     resp.raise_for_status()
     data = resp.json()
 
-    choice = data["choices"]
-    content = choice["message"]["content"]
+    choices = data.get("choices") or []
+    if not choices:
+        raise ValueError(f"No choices in OpenRouter response: {data}")
 
-    # OpenRouter / providers may return list segments
+    first = choices[0]
+
+    # Standard OpenRouter / OpenAI-like shape: {"message": {...}}
+    if isinstance(first, dict) and "message" in first:
+        message_obj = first["message"]
+    # Fallback: if somehow it's nested as a list of dicts
+    elif isinstance(first, list) and first and isinstance(first[0], dict) and "message" in first[0]:
+        message_obj = first[0]["message"]
+    else:
+        # Last resort: treat first as the content itself
+        content_stripped = strip_code_fence(first)
+        return json.loads(content_stripped)
+
+    content = message_obj.get("content")
+
+    # If content is a list of chunks, normalize to a string
     if isinstance(content, list):
         chunks = []
         for c in content:
@@ -113,7 +132,9 @@ def call_deepseek_via_openrouter(prompt: str) -> dict:
     try:
         parsed = json.loads(content_stripped)
     except json.JSONDecodeError as e:
-        raise ValueError(f"Failed to parse JSON from model response: {e}\nRaw content:\n{content_stripped}") from e
+        raise ValueError(
+            f"Failed to parse JSON from model response: {e}\nRaw content:\n{content_stripped}"
+        ) from e
 
     return parsed
 
@@ -125,7 +146,9 @@ def main():
     verse_en = data.get("verse_en") or data.get("verse_text")
 
     if not verse_ref or not verse_en:
-        raise ValueError("current_verse.json must contain 'verse_ref' (or similar) and 'verse_en'.")
+        raise ValueError(
+            "current_verse.json must contain 'verse_ref' (or similar) and 'verse_en'."
+        )
 
     print(f"Summarizing and translating verse: {verse_ref}")
     prompt = build_prompt(verse_ref, verse_en)
@@ -145,15 +168,17 @@ def main():
     save_current_verse(data)
 
     print("Updated current_verse.json with summary_en, summary_te, title_te.")
-    print(json.dumps(
-        {
-            "summary_en": summary_en,
-            "summary_te": summary_te,
-            "title_te": title_te,
-        },
-        ensure_ascii=False,
-        indent=2,
-    ))
+    print(
+        json.dumps(
+            {
+                "summary_en": summary_en,
+                "summary_te": summary_te,
+                "title_te": title_te,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":
