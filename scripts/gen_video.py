@@ -44,14 +44,12 @@ def run_ffmpeg(cmd):
 
 def ffmpeg_escape_text(text: str) -> str:
     """
-    Escape text so it is safe inside drawtext's single-quoted text= argument.[web:387][web:411]
+    Minimal escaping so text is safe in drawtext's single-quoted text value.[web:387][web:411]
     """
     if not text:
         return ""
     text = text.replace("\\", "\\\\")   # backslashes
     text = text.replace("'", r"\'")     # single quotes
-    text = text.replace(":", r"\:")     # colons
-    text = text.replace(",", r"\,")     # commas
     text = text.replace("%", r"\%")     # percent
     text = text.replace("\n", " ")      # newlines -> space
     return text
@@ -61,7 +59,6 @@ def main() -> int:
     try:
         data = load_current_verse()
 
-        # Only enforce fields we know are set earlier in the pipeline
         required_keys = ["background_image_path", "audio_path", "reference"]
         missing = [k for k in required_keys if k not in data or not data[k]]
         if missing:
@@ -73,7 +70,7 @@ def main() -> int:
         audio_path = str((BASE_DIR / data["audio_path"]).resolve())
         reference = data["reference"]
 
-        # Text to display: use summary_en if available, else summary
+        # Text to display: summary_en or summary
         text = data.get("summary_en") or data.get("summary") or ""
         if not text:
             raise ValueError("current_verse.json has no text field (summary_en/summary missing)")
@@ -86,14 +83,15 @@ def main() -> int:
         tmp_main = TMP_DIR / f"{safe_ref}_main.mp4"
 
         overlay_text = ffmpeg_escape_text(text)
+        logger.info("[gen_video] overlay text: %s", overlay_text)
 
-        # Scale + pad background, then overlay a boxed caption in the center, plus audio.[web:394][web:412]
+        # Scale + pad background, then caption in center, plus audio.[web:394][web:412]
         filter_complex = (
             f"[0:v]scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=decrease,"
             f"pad={VIDEO_WIDTH}:{VIDEO_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black@0.0[base];"
             f"[base]drawtext=fontfile='{VIDEO_FONT_PATH}':"
             f"text='{overlay_text}':"
-            "fontcolor=white:fontsize=64:line_spacing=10:box=1:boxcolor=black@0.6:boxborderw=24:"
+            "fontcolor=white:fontsize=52:line_spacing=10:box=1:boxcolor=black@0.6:boxborderw=20:"
             "x=(w-text_w)/2:y=(h-text_h)/2[vmain];"
             "[1:a]anull[a]"
         )
