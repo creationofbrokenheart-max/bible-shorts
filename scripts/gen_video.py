@@ -44,20 +44,15 @@ def run_ffmpeg(cmd):
 
 def ffmpeg_escape_text(text: str) -> str:
     """
-    Escape text for ffmpeg drawtext (inside single quotes in filter_complex).
-    Based on ffmpeg quoting rules and common escaping patterns.[web:387][web:391]
+    Escape text for ffmpeg drawtext (inside single quotes).
+    Keep it minimal to avoid breaking the filter graph.[web:387][web:391]
     """
     if not text:
         return ""
-    # Replace backslashes first
-    text = text.replace("\\", "\\\\")
-    # Escape single quotes
-    text = text.replace("'", r"\'")
-    # Escape colons and percent which are special in drawtext
-    text = text.replace(":", r"\:")
-    text = text.replace("%", r"\%")
-    # Flatten newlines
-    text = text.replace("\n", " ")
+    text = text.replace("\\", "\\\\")   # backslashes
+    text = text.replace("'", r"\'")     # single quotes
+    text = text.replace("%", r"\%")     # percent
+    text = text.replace("\n", " ")      # newlines -> space
     return text
 
 
@@ -80,12 +75,10 @@ def main() -> int:
         OUTPUT_VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
         TMP_DIR.mkdir(parents=True, exist_ok=True)
 
-        # Build safe filename from reference, e.g. "Book_of_Ruth_4-12"
         safe_ref = reference.replace(" ", "_").replace(":", "-")
         main_out = OUTPUT_VIDEOS_DIR / f"{safe_ref}.mp4"
         tmp_main = TMP_DIR / f"{safe_ref}_main.mp4"
 
-        # Escape overlay text for drawtext
         overlay_text = ffmpeg_escape_text(summary_en)
 
         filter_complex = (
@@ -118,8 +111,6 @@ def main() -> int:
 
         run_ffmpeg(cmd_main)
 
-        # If you ever want a second pass (e.g. add intro/outro), do it here.
-        # For now, just move tmp_main to main_out.
         os.replace(tmp_main, main_out)
 
         data["video_path"] = str(main_out.relative_to(BASE_DIR))
