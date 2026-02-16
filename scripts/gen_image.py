@@ -1,14 +1,10 @@
 import json
-import os
 from pathlib import Path
-import base64
-import requests
+
+from PIL import Image, ImageDraw, ImageFilter  # pip install pillow
 
 CURRENT_VERSE_PATH = Path("current_verse.json")
 IMAGES_DIR = Path("outputs/images")
-
-STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
-STABILITY_URL = "https://api.stability.ai/v2beta/stable-image/generate/sd3"
 
 
 def load_current_verse():
@@ -33,61 +29,22 @@ def safe_ref(ref: str) -> str:
     )
 
 
-def build_prompt(data: dict) -> str:
-    reference = data.get("reference") or data.get("verse_ref") or ""
-    summary_en = data.get("summary_en") or data.get("verse_en") or ""
+def build_base_image(width=1080, height=1920) -> Image.Image:
+    # Dark background with subtle vignette to highlight text
+    img = Image.new("RGB", (width, height), (5, 5, 10))
+    draw = ImageDraw.Draw(img)
 
-    prompt = (
-        f"Cinematic Bible artwork, ultra detailed, 4K look. "
-        f"Scene inspired by {reference} from the Bible. "
-        f"Theme: {summary_en} "
-        f"dark background, rich shadows, high contrast, moody lighting, "
-        f"dramatic light rays, volumetric lighting, no text, no watermark."
-    )
-    return prompt
+    # Simple radial vignette
+    for i in range(0, max(width, height), 80):
+        alpha = int(255 * (i / max(width, height)))
+        draw.rectangle(
+            [i, i, width - i, height - i],
+            fill=(0, 0, 0),
+            outline=None,
+        )
 
-
-def call_stability_t2i(prompt: str) -> bytes:
-    if not STABILITY_API_KEY:
-        raise RuntimeError("STABILITY_API_KEY is not set.")
-
-    headers = {
-        "Authorization": f"Bearer {STABILITY_API_KEY}",
-        # DO NOT set Content-Type here; requests sets it for multipart
-        "Accept": "application/json",
-    }
-
-    # sd3 endpoint expects multipart/form-data with a 'prompt' field.[web:279]
-    data = {
-        "prompt": prompt,
-        "output_format": "png",
-        "aspect_ratio": "9:16",
-        "negative_prompt": "text, watermark, logo, words, letters, caption, lowres, blurry, distorted, ugly, oversaturated",
-    }
-
-    resp = requests.post(
-        STABILITY_URL,
-        headers=headers,
-        data=data,
-        files={},  # no image upload, but multipart is still required
-        timeout=120,
-    )
-
-    if resp.status_code != 200:
-        print("Stability status:", resp.status_code)
-        print("Stability body:", resp.text)
-        resp.raise_for_status()
-
-    resp_json = resp.json()
-    if "image" in resp_json:
-        b64 = resp_json["image"]
-    else:
-        images = resp_json.get("images") or []
-        if not images or "image" not in images[0]:
-            raise RuntimeError(f"Unexpected Stability response: {resp_json}")
-        b64 = images[0]["image"]
-
-    return base64.b64decode(b64)
+    img = img.filter(ImageFilter.GaussianBlur(radius=8))
+    return img
 
 
 def main():
@@ -101,14 +58,10 @@ def main():
     out_name = f"{safe_ref(ref)}.png"
     out_path = IMAGES_DIR / out_name
 
-    prompt = build_prompt(data)
-    print("Requesting dark cinematic image from Stability SD3")
-    print("Prompt:", prompt)
+    print("Creating local dark background image (no external API).")
 
-    image_bytes = call_stability_t2i(prompt)
-
-    with out_path.open("wb") as f:
-        f.write(image_bytes)
+    img = build_base_image()
+    img.save(out_path, format="PNG", optimize=True)
 
     data["background_image_path"] = str(out_path)
     save_current_verse(data)
