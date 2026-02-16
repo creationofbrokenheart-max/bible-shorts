@@ -54,6 +54,24 @@ Verse (English): {verse_en}
 """.strip()
 
 
+def strip_code_fence(raw: str) -> str:
+    """
+    Remove ```...``` or ```json...``` fences if the model wraps JSON in Markdown.
+    """
+    s = raw.strip()
+    if not s.startswith("```"):
+        return s
+
+    lines = s.splitlines()
+    # drop first line if it's ``` or ```json
+    if lines and lines.strip().startswith("```"):
+        lines = lines[1:]
+    # drop last line if it's ```
+    if lines and lines[-1].strip().startswith("```"):
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
 def call_deepseek_via_openrouter(prompt: str) -> dict:
     if not OPENROUTER_API_KEY:
         print("OPENROUTER_API_KEY environment variable is not set.", file=sys.stderr)
@@ -78,29 +96,16 @@ def call_deepseek_via_openrouter(prompt: str) -> dict:
         print(f"Error calling DeepSeek via OpenRouter: {e}", file=sys.stderr)
         sys.exit(1)
 
-content = completion.choices.message.content
+    content = completion.choices[0].message.content
 
-# Strip Markdown fences if present (```json ... ```)
-content_stripped = content.strip()
-if content_stripped.startswith("```"):
-    lines = content_stripped.splitlines()
-    # drop first line if it's ``` or ```json
-    if lines and lines[0].strip().startswith("```"):
-        lines = lines[1:]
-    # drop last line if it's ```
-    if lines and lines[-1].strip().startswith("```"):
-        lines = lines[:-1]
-    content_stripped = "\n".join(lines).strip()
-else:
-    content_stripped = content_stripped
+    content_stripped = strip_code_fence(content)
 
-try:
-    data = json.loads(content_stripped)
-except json.JSONDecodeError:
-    print("Failed to parse LLM response as JSON. Raw content:", file=sys.stderr)
-    print(content, file=sys.stderr)
-    sys.exit(1)
-
+    try:
+        data = json.loads(content_stripped)
+    except json.JSONDecodeError:
+        print("Failed to parse LLM response as JSON. Raw content:", file=sys.stderr)
+        print(content, file=sys.stderr)
+        sys.exit(1)
 
     if not isinstance(data, dict):
         print("LLM JSON root is not an object. Got:", type(data), file=sys.stderr)
@@ -110,7 +115,8 @@ except json.JSONDecodeError:
     if not required_keys.issubset(data.keys()):
         print("LLM JSON missing required keys. Got keys:", list(data.keys()), file=sys.stderr)
         sys.exit(1)
-        return data
+
+    return data
 
 
 def main():
