@@ -58,7 +58,7 @@ def call_hf_t2i(prompt: str, negative_prompt: str) -> bytes:
     if not HF_TOKEN:
         raise RuntimeError("HF_TOKEN is not set.")
 
-    url = f"https://api-inference.huggingface.co/models/{HF_T2I_MODEL}"
+    url = f"https://router.huggingface.co/models/{HF_T2I_MODEL}"
     headers = {
         "Authorization": f"Bearer {HF_TOKEN}",
         "Content-Type": "application/json",
