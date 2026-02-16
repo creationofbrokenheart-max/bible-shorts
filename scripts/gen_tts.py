@@ -30,20 +30,27 @@ def save_current_verse(data):
 
 def build_tts_payload(text_te: str) -> dict:
     """
-    Build the request body for your TTS provider.
-
-    You MUST adjust this function to match the API you're using.
-    Below is a generic example shaped like many TTS APIs.
+    Build request body for CAMB.AI /apis/tts endpoint.
+    Required: text, voice_id, language.[web:58]
     """
+    if not TTS_VOICE_ID:
+        print("TTS_VOICE_ID must be set for CAMB.AI TTS.", file=sys.stderr)
+        sys.exit(1)
 
-    # Example CAMB.AI-like payload (adjust fields per their docs).[web:58][web:60][web:61][web:62]
+    # For now, hard-code English language id = 1 (per CAMB docs examples).[web:58][web:62]
+    language_id = int(TTS_LANGUAGE) if TTS_LANGUAGE else 1
+
     payload = {
         "text": text_te,
-        # "source_language": "te",  # if required by endpoint
-        # "target_language": "te",  # for translated-tts endpoint[web:60][web:99]
+        "voice_id": int(TTS_VOICE_ID),
+        "language": language_id,
+        "project_name": "Bible English Shorts",
+        "project_description": "Automated Bible verse English voiceover",
+        "folder_id": 0,
+        "gender": 0,
+        "age": "adult",
     }
-    if TTS_VOICE_ID:
-        payload["voice_id"] = TTS_VOICE_ID
+    print(f"TTS payload being sent: {payload}")  # debug log
     return payload
 
 
