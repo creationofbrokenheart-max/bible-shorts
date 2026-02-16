@@ -1,20 +1,39 @@
+# scripts/gen_image.py
+
 import os
+import sys
 import json
 import random
-import requests
+import logging
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 
-from dotenv import load_dotenv
+import requests
 
-load_dotenv()
+# --- Logging -----------------------------------------------------------------
 
-PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("gen_image")
+
+# --- Paths -------------------------------------------------------------------
+
+BASE_DIR = Path(__file__).resolve().parents[1]  # repo root
+CURRENT_VERSE_JSON = BASE_DIR / "current_verse.json"
+OUTPUT_IMAGES_DIR = BASE_DIR / "outputs" / "images"
+CACHE_DIR = BASE_DIR / "cache" / "pexels"
+
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+# --- Pexels config -----------------------------------------------------------
+
+PEXELS_API_KEY_ENV = "PEXELS_API_KEY"
 PEXELS_SEARCH_URL = "https://api.pexels.com/v1/search"
 
-BASE_DIR = Path(__file__).resolve().parent
-OUTPUT_IMAGES_DIR = BASE_DIR / "outputs" / "images"
-CURRENT_VERSE_JSON = BASE_DIR / "current_verse.json"
+
+# --- Helpers -----------------------------------------------------------------
 
 
 def load_current_verse() -> Dict[str, Any]:
@@ -29,14 +48,11 @@ def save_current_verse(data: Dict[str, Any]) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def get_reference_key(verse_data: Dict[str, Any]) -> str:
-    # Prefer an explicit key if you already store it
-    ref_key = verse_data.get("reference_key")
-    if ref_key:
-        return ref_key
+def get_reference_key(data: Dict[str, Any]) -> str:
+    if "reference_key" in data and data["reference_key"]:
+        return data["reference_key"]
 
-    # Fallback: sanitize the reference, e.g. "John 3:16" -> "John3_16"
-    ref = verse_data.get("reference", "unknown_ref")
+    ref = data.get("reference", "unknown_ref")
     ref_key = (
         ref.replace(" ", "")
            .replace(":", "_")
@@ -46,61 +62,110 @@ def get_reference_key(verse_data: Dict[str, Any]) -> str:
     return ref_key
 
 
-def fetch_pexels_forest_image(ref_key: str) -> str:
-    """
-    Download one vertical forest image from Pexels
-    and save to outputs/images/<ref_key>.jpg
-    """
-    if not PEXELS_API_KEY:
-        raise RuntimeError("PEXELS_API_KEY not set in environment")
+# --- Simple Pexels client with cache ----------------------------------------
 
-    headers = {
-        "Authorization": PEXELS_API_KEY
-    }
 
+def _cache_path(query: str) -> Path:
+    safe = query.replace(" ", "_").replace(",", "_")
+    return CACHE_DIR / f"{safe}.json"
+
+
+def _load_cache(query: str) -> Optional[List[Dict[str, Any]]]:
+    path = _cache_path(query)
+    if not path.exists():
+        return None
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("photos")
+    except Exception:
+        return None
+
+
+def _save_cache(query: str, photos: List[Dict[str, Any]]) -> None:
+    path = _cache_path(query)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump({"photos": photos}, f)
+
+
+def search_pexels(query: str, api_key: str) -> List[Dict[str, Any]]:
+    cached = _load_cache(query)
+    if cached:
+        logger.info("[pexels] using cache for query='%s' (%d photos)", query, len(cached))
+        return cached
+
+    headers = {"Authorization": api_key}
     params = {
-        "query": "dark forest night, cinematic, mystical",  # you can tweak this
-        "per_page": 15,
-        "orientation": "portrait"  # better for 9:16 reels
+        "query": query,
+        "per_page": 30,
+        "orientation": "portrait",
     }
 
-    resp = requests.get(PEXELS_SEARCH_URL, headers=headers, params=params, timeout=10)
+    resp = requests.get(PEXELS_SEARCH_URL, headers=headers, params=params, timeout=15)
+    if resp.status_code == 429:
+        logger.error("[pexels] rate limited (429) for query='%s'", query)
+        resp.raise_for_status()
     resp.raise_for_status()
+
     data = resp.json()
     photos = data.get("photos", [])
+    _save_cache(query, photos)
+    return photos
+
+
+def pick_photo_url(query: str, api_key: str) -> str:
+    photos = search_pexels(query, api_key)
     if not photos:
-        raise RuntimeError("No Pexels photos found for query")
+        raise RuntimeError(f"No Pexels photos for query='{query}'")
 
     photo = random.choice(photos)
-    src = photo["src"].get("large2x") or photo["src"].get("original")
-    if not src:
+    srcs = photo.get("src", {})
+    url = srcs.get("large2x") or srcs.get("original") or srcs.get("large")
+    if not url:
         raise RuntimeError("Selected Pexels photo has no usable src URL")
-
-    img_resp = requests.get(src, timeout=20)
-    img_resp.raise_for_status()
-
-    OUTPUT_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = OUTPUT_IMAGES_DIR / f"{ref_key}.jpg"
-    with out_path.open("wb") as f:
-        f.write(img_resp.content)
-
-    return str(out_path)
+    return url
 
 
-def main():
-    verse_data = load_current_verse()
-    ref_key = get_reference_key(verse_data)
+# --- Main --------------------------------------------------------------------
 
-    print(f"Using reference key: {ref_key}")
 
-    image_path = fetch_pexels_forest_image(ref_key)
-    print(f"Saved Pexels forest image to: {image_path}")
+def main() -> int:
+    try:
+        verse_data = load_current_verse()
+        ref_key = get_reference_key(verse_data)
 
-    # Store image_path back into current_verse.json for the video step
-    verse_data["image_path"] = image_path
-    save_current_verse(verse_data)
-    print("Updated current_verse.json with image_path")
+        api_key = os.getenv(PEXELS_API_KEY_ENV)
+        if not api_key:
+            raise RuntimeError(f"{PEXELS_API_KEY_ENV} not set in environment")
+
+        # You can later make this dynamic from verse topic if you want
+        query = verse_data.get(
+            "image_theme",
+            "dark forest night, cinematic, mystical"
+        )
+
+        logger.info("[gen_image] reference_key=%s query=%s", ref_key, query)
+
+        img_url = pick_photo_url(query, api_key)
+        logger.info("[gen_image] selected Pexels URL: %s", img_url)
+
+        OUTPUT_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+        out_path = OUTPUT_IMAGES_DIR / f"{ref_key}.jpg"
+
+        resp = requests.get(img_url, timeout=30)
+        resp.raise_for_status()
+        with out_path.open("wb", "wb") as f:
+            f.write(resp.content)
+
+        verse_data["image_path"] = str(out_path)
+        save_current_verse(verse_data)
+        logger.info("[gen_image] saved %s and updated current_verse.json", out_path)
+
+        return 0
+    except Exception as e:
+        logger.exception("[gen_image] fatal error: %s", e)
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
