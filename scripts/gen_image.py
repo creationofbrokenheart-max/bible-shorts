@@ -10,9 +10,7 @@ CURRENT_VERSE_PATH = Path("current_verse.json")
 IMAGES_DIR = Path("outputs/images")
 
 HF_TOKEN = os.getenv("HF_TOKEN")
-# Pick a text-to-image model that works with InferenceClient.text_to_image
-# You can change this via env if you want a different model.
-HF_T2I_MODEL = os.getenv("HF_T2I_MODEL", "black-forest-labs/FLUX.1-dev")
+HF_T2I_MODEL = os.getenv("HF_T2I_MODEL", "Tongyi-MAI/Z-Image")
 
 
 def load_current_verse():
@@ -61,14 +59,13 @@ def call_hf_t2i(prompt: str, negative_prompt: str) -> bytes:
     if not HF_TOKEN:
         raise RuntimeError("HF_TOKEN is not set.")
 
-    # InferenceClient will route to a suitable backend; no more 410 on api-inference
-    client = InferenceClient(api_key=HF_TOKEN)  # uses Hugging Face Inference API[web:268]
+    client = InferenceClient(api_key=HF_TOKEN)
 
+    # No `size` kwarg – use model default resolution
     image = client.text_to_image(
         prompt=prompt,
         model=HF_T2I_MODEL,
         negative_prompt=negative_prompt,
-        size="1080x1920",  # vertical for Shorts
     )
 
     buf = BytesIO()
