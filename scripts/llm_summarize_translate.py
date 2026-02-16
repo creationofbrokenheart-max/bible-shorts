@@ -3,17 +3,18 @@ import os
 import sys
 from pathlib import Path
 
-from openai import OpenAI  # OpenAI-compatible client[web:133]
+from openai import OpenAI  # OpenAI-compatible client
 
 CURRENT_VERSE_JSON = Path("current_verse.json")
 
-HF_TOKEN = os.getenv("HF_TOKEN")
-# We call the specific DeepSeek model endpoint exposed via HF router.
-DEEPSEEK_BASE_URL = os.getenv(
-    "DEEPSEEK_BASE_URL",
-    "https://router.huggingface.co/hf-inference/models/deepseek-ai/DeepSeek-V3",
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+# OpenRouter base URL
+OPENROUTER_BASE_URL = os.getenv(
+    "OPENROUTER_BASE_URL",
+    "https://openrouter.ai/api/v1",
 )
-DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-ai/DeepSeek-V3")  # name in the request body[web:127][web:130]
+# DeepSeek model id on OpenRouter[web:130]
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek/deepseek-chat")
 
 
 def load_current_verse():
@@ -57,14 +58,14 @@ Verse (English): {verse_en}
 """.strip()
 
 
-def call_deepseek_llm(prompt: str) -> dict:
-    if not HF_TOKEN:
-        print("HF_TOKEN environment variable is not set.", file=sys.stderr)
+def call_deepseek_via_openrouter(prompt: str) -> dict:
+    if not OPENROUTER_API_KEY:
+        print("OPENROUTER_API_KEY environment variable is not set.", file=sys.stderr)
         sys.exit(1)
 
     client = OpenAI(
-        base_url=DEEPSEEK_BASE_URL,  # talk directly to DeepSeek-V3 endpoint on HF[web:127][web:131]
-        api_key=HF_TOKEN,
+        base_url=OPENROUTER_BASE_URL,
+        api_key=OPENROUTER_API_KEY,
     )
 
     try:
@@ -78,7 +79,7 @@ def call_deepseek_llm(prompt: str) -> dict:
             temperature=0.4,
         )
     except Exception as e:
-        print(f"Error calling DeepSeek via Hugging Face router: {e}", file=sys.stderr)
+        print(f"Error calling DeepSeek via OpenRouter: {e}", file=sys.stderr)
         sys.exit(1)
 
     content = completion.choices[0].message.content
@@ -109,7 +110,7 @@ def main():
         sys.exit(1)
 
     prompt = build_prompt(verse_en=verse_en, reference=reference)
-    result = call_deepseek_llm(prompt)
+    result = call_deepseek_via_openrouter(prompt)
 
     current["summary_en"] = result["summary_en"]
     current["summary_te"] = result["summary_te"]
