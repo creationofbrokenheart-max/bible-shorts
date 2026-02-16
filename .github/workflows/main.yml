@@ -44,3 +44,12 @@ jobs:
           python scripts/gen_image.py
           python scripts/gen_tts.py
           python scripts/gen_video.py
+      - name: Upload generated media
+        uses: actions/upload-artifact@v4
+        with:
+          name: bible-short
+          path: |
+            outputs/images
+            outputs/audio
+            outputs/videos
+            current_verse.json
