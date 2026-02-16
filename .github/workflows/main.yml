@@ -44,6 +44,7 @@ jobs:
           TTS_API_URL: ${{ secrets.TTS_API_URL }}
           TTS_VOICE_ID: ${{ secrets.TTS_VOICE_ID }}
           TTS_LANGUAGE: ${{ secrets.TTS_LANGUAGE }}
+          CAMB_API_KEY: ${{ secrets.CAMB_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
           # Optional: font path for drawtext
