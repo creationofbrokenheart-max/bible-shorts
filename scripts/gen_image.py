@@ -17,7 +17,8 @@ HF_T2I_MODEL = os.getenv(
     "HF_T2I_MODEL",
     "stabilityai/stable-diffusion-xl-base-1.0",
 )
-HF_T2I_URL = f"https://api-inference.huggingface.co/models/{HF_T2I_MODEL}"
+HF_T2I_URL = f"https://router.huggingface.co/hf-inference/models/{HF_T2I_MODEL}"
+
 
 
 def load_current_verse():
