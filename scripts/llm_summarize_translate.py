@@ -78,26 +78,29 @@ def call_deepseek_via_openrouter(prompt: str) -> dict:
         print(f"Error calling DeepSeek via OpenRouter: {e}", file=sys.stderr)
         sys.exit(1)
 
-    content = completion.choices[0].message.content
+content = completion.choices.message.content
 
-    # Strip Markdown fences if present (```json ... ```)
-    content_stripped = content.strip()
-    if content_stripped.startswith("```"):
-        lines = content_stripped.splitlines()
-        # drop first line if it's ``` or ```json
-        if lines and lines.strip().startswith("```"):
-            lines = lines[1:]
-        # drop last line if it's ```
-        if lines and lines[-1].strip().startswith("```"):
-            lines = lines[:-1]
-        content_stripped = "\n".join(lines).strip()
+# Strip Markdown fences if present (```json ... ```)
+content_stripped = content.strip()
+if content_stripped.startswith("```"):
+    lines = content_stripped.splitlines()
+    # drop first line if it's ``` or ```json
+    if lines and lines[0].strip().startswith("```"):
+        lines = lines[1:]
+    # drop last line if it's ```
+    if lines and lines[-1].strip().startswith("```"):
+        lines = lines[:-1]
+    content_stripped = "\n".join(lines).strip()
+else:
+    content_stripped = content_stripped
 
-    try:
-        data = json.loads(content_stripped)
-    except json.JSONDecodeError:
-        print("Failed to parse LLM response as JSON. Raw content:", file=sys.stderr)
-        print(content, file=sys.stderr)
-        sys.exit(1)
+try:
+    data = json.loads(content_stripped)
+except json.JSONDecodeError:
+    print("Failed to parse LLM response as JSON. Raw content:", file=sys.stderr)
+    print(content, file=sys.stderr)
+    sys.exit(1)
+
 
     if not isinstance(data, dict):
         print("LLM JSON root is not an object. Got:", type(data), file=sys.stderr)
