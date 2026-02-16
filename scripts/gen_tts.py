@@ -29,21 +29,16 @@ def save_current_verse(data):
 
 
 def build_tts_payload(text_te: str) -> dict:
-    """
-    Build the request body for your TTS provider.
-
-    You MUST adjust this function to match the API you're using.
-    Below is a generic example shaped like many TTS APIs:
-    """
-    # Example CAMB.AI-like payload (you will adapt fields as per their docs).[web:58][web:60][web:61][web:62]
+    # Example CAMB.AI style – adjust keys as per their API docs.[web:58][web:60][web:99]
     payload = {
-        "text": text_te,
-        # language / voice fields are provider-specific:
-        # For example, CAMB.AI uses language IDs, ElevenLabs uses `voice_id` etc.[web:17][web:20][web:63][web:64]
+        "input": text_te,          # or "text": text_te
+        "source_language": "te",   # Telugu code if required
+        # "target_language": "te", # if using translated-tts endpoint
     }
     if TTS_VOICE_ID:
         payload["voice_id"] = TTS_VOICE_ID
     return payload
+
 
 
 def call_tts_api(text_te: str) -> bytes:
