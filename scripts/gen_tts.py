@@ -30,7 +30,7 @@ def save_current_verse(data):
 def build_tts_payload(text_en: str) -> dict:
     """
     CAMB /apis/tts payload: requires text, voice_id, language.
-    We use English text (summary_en) for now.
+    folder_id must be > 0, age must be int.[web:58]
     """
     if not TTS_VOICE_ID:
         print("TTS_VOICE_ID must be set for CAMB.AI TTS.", file=sys.stderr)
@@ -45,13 +45,12 @@ def build_tts_payload(text_en: str) -> dict:
         "language": language_id,
         "project_name": "Bible English Shorts",
         "project_description": "Automated Bible verse English voiceover",
-        "folder_id": 0,
+        "folder_id": 1,   # must be > 0[web:58]
         "gender": 0,
-        "age": "adult",
+        "age": 30,        # integer, not string[web:58][web:62]
     }
     print(f"TTS payload being sent: {payload}")
     return payload
-
 
 def call_tts_api(text_en: str) -> bytes:
     if not TTS_API_KEY or not TTS_API_URL:
