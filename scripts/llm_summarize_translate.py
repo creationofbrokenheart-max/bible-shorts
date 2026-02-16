@@ -3,17 +3,13 @@ import os
 import sys
 from pathlib import Path
 
-from openai import OpenAI
+from huggingface_hub import InferenceClient  # [web:22][web:24][web:110]
 
 CURRENT_VERSE_JSON = Path("current_verse.json")
 
-# Use Hugging Face router as an OpenAI-compatible endpoint.[web:22][web:24]
-HF_TOKEN = os.getenv("HF_TOKEN")  # set this in your environment / GitHub Actions secret
-HF_BASE_URL = os.getenv("HF_BASE_URL", "https://router.huggingface.co/v1")
-
-# Choose a sane default HF model id (you can change it later).
-# Any chat-instruct model available via router works, e.g. Llama-3.[web:22][web:24]
-HF_MODEL = os.getenv("HF_MODEL", "meta-llama/Meta-Llama-3.1-8B-Instruct")
+HF_TOKEN = os.getenv("HF_TOKEN")
+# Standard HF model id (you can change via env HF_MODEL if you like).[web:110]
+HF_MODEL = os.getenv("HF_MODEL", "meta-llama/Llama-3.1-8B-Instruct")
 
 
 def load_current_verse():
@@ -30,12 +26,6 @@ def save_current_verse(data):
 
 
 def build_prompt(verse_en: str, reference: str) -> str:
-    """
-    Build a clear instruction prompt for the LLM:
-    - Teen-friendly English summary
-    - Telugu explanation
-    - Short Telugu title
-    """
     return f"""
 You are helping create YouTube Shorts for Telugu Christian teenagers.
 
@@ -68,14 +58,13 @@ def call_hf_llm(prompt: str) -> dict:
         print("HF_TOKEN environment variable is not set.", file=sys.stderr)
         sys.exit(1)
 
-    client = OpenAI(
-        base_url=HF_BASE_URL,
-        api_key=HF_TOKEN,
-    )
+    client = InferenceClient(
+        model=HF_MODEL,
+        token=HF_TOKEN,
+    )  # uses HF Inference API, not router[web:22][web:24][web:110]
 
     try:
-        completion = client.chat.completions.create(
-            model=HF_MODEL,
+        completion = client.chat_completion(
             messages=[
                 {"role": "system", "content": "You are a helpful assistant for Christian teen content creation."},
                 {"role": "user", "content": prompt},
@@ -84,11 +73,11 @@ def call_hf_llm(prompt: str) -> dict:
             temperature=0.4,
         )
     except Exception as e:
-        print(f"Error calling Hugging Face LLM via router: {e}", file=sys.stderr)
+        print(f"Error calling Hugging Face LLM: {e}", file=sys.stderr)
         sys.exit(1)
 
-    content = completion.choices[0].message.content
-    # Model should return JSON string; try to parse.
+    content = completion.choices[0].message["content"]
+
     try:
         data = json.loads(content)
     except json.JSONDecodeError:
@@ -117,7 +106,6 @@ def main():
     prompt = build_prompt(verse_en=verse_en, reference=reference)
     result = call_hf_llm(prompt)
 
-    # Merge results back into current_verse.json
     current["summary_en"] = result["summary_en"]
     current["summary_te"] = result["summary_te"]
     current["title_te"] = result["title_te"]
