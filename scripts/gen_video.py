@@ -28,6 +28,7 @@ VIDEO_FONT_PATH = os.getenv(
 
 VIDEO_WIDTH = 1080
 VIDEO_HEIGHT = 1920
+MAX_DURATION = 20  # hard upper bound in seconds
 
 
 def load_current_verse() -> Dict[str, Any]:
@@ -96,7 +97,7 @@ def main() -> int:
             "[1:a]anull[a]"
         )
 
-         cmd_main = [
+        cmd_main = [
             "ffmpeg",
             "-y",
             "-i", bg_path,
@@ -109,11 +110,10 @@ def main() -> int:
             "-pix_fmt", "yuv420p",
             "-c:a", "aac",
             "-b:a", "192k",
-            "-t", "16",          # 6-second short regardless of TTS length
-            "-shortest",
+            "-t", str(MAX_DURATION),  # hard cap
+            "-shortest",              # stop when audio ends, if earlier
             str(tmp_main),
-        ] 
-
+        ]
 
         run_ffmpeg(cmd_main)
         os.replace(tmp_main, main_out)
