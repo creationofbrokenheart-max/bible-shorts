@@ -94,22 +94,22 @@ def main() -> int:
         )
 
         cmd_main = [
-            "ffmpeg",
-            "-y",
-            "-loop", "1",
-            "-i", bg_path,
-            "-i", audio_path,
-            "-filter_complex", filter_complex,
-            "-map", "[vmain]",
-            "-map", "[a]",
-            "-c:v", "libx264",
-            "-tune", "stillimage",
-            "-pix_fmt", "yuv420p",
-            "-c:a", "aac",
-            "-b:a", "192k",
-            "-shortest",
-            str(tmp_main),
-        ]
+        "ffmpeg",
+        "-y",
+        "-i", bg_path,
+        "-i", audio_path,
+        "-filter_complex", filter_complex,
+        "-map", "[vmain]",
+        "-map", "[a]",
+        "-c:v", "libx264",
+        "-tune", "stillimage",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-shortest",
+        str(tmp_main),
+       ]
+
 
         run_ffmpeg(cmd_main)
         os.replace(tmp_main, main_out)
