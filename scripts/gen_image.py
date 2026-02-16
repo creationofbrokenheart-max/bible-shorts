@@ -7,9 +7,9 @@ import requests
 CURRENT_VERSE_PATH = Path("current_verse.json")
 IMAGES_DIR = Path("outputs/images")
 
-HF_TOKEN = os.getenv("HF_TOKEN")
-# DO NOT override this to Tongyi-MAI/Z-Image when using api-inference.
-HF_T2I_MODEL = os.getenv("HF_T2I_MODEL", "stabilityai/stable-diffusion-2-1")
+STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
+# SDXL endpoint – text-to-image
+STABILITY_URL = "https://api.stability.ai/v2beta/stable-image/generate/sd3"
 
 
 def load_current_verse():
@@ -34,61 +34,55 @@ def safe_ref(ref: str) -> str:
     )
 
 
-def build_prompt(data: dict) -> tuple[str, str]:
+def build_prompt(data: dict) -> str:
     reference = data.get("reference") or data.get("verse_ref") or ""
     summary_en = data.get("summary_en") or data.get("verse_en") or ""
 
     prompt = (
-        f"Cinematic Bible artwork, ultra detailed. "
+        f"Cinematic Bible artwork, ultra detailed, 4K look. "
         f"Scene inspired by {reference} from the Bible. "
         f"Theme: {summary_en} "
         f"dark background, rich shadows, high contrast, moody lighting, "
         f"dramatic light rays, volumetric lighting, no text, no watermark."
     )
-
-    negative_prompt = (
-        "text, watermark, logo, words, letters, caption, "
-        "lowres, blurry, distorted, ugly, oversaturated"
-    )
-
-    return prompt, negative_prompt
+    return prompt
 
 
-def call_hf_t2i(prompt: str, negative_prompt: str) -> bytes:
-    if not HF_TOKEN:
-        raise RuntimeError("HF_TOKEN is not set.")
+def call_stability_t2i(prompt: str) -> bytes:
+    if not STABILITY_API_KEY:
+        raise RuntimeError("STABILITY_API_KEY is not set.")
 
-    url = f"https://router.huggingface.co/models/{HF_T2I_MODEL}"
     headers = {
-        "Authorization": f"Bearer {HF_TOKEN}",
-        "Content-Type": "application/json",
+        "Authorization": f"Bearer {STABILITY_API_KEY}",
+        "Accept": "application/json",
     }
 
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            "negative_prompt": negative_prompt,
-            "num_inference_steps": 30,
-            "guidance_scale": 7.5,
-        },
+    # Using SD3 text prompt API – documented by Stability.[web:279]
+    data = {
+        "prompt": prompt,
+        "output_format": "png",
+        "aspect_ratio": "9:16",  # vertical Shorts
+        "negative_prompt": "text, watermark, logo, words, letters, caption, lowres, blurry, distorted, ugly, oversaturated",
     }
 
-    resp = requests.post(url, headers=headers, json=payload, timeout=120)
+    resp = requests.post(STABILITY_URL, headers=headers, json=data, timeout=120)
 
-    # Debug if something goes wrong
     if resp.status_code != 200:
-        print("HF status:", resp.status_code)
-        print("HF body:", resp.text)
+        print("Stability status:", resp.status_code)
+        print("Stability body:", resp.text)
         resp.raise_for_status()
 
-    if resp.headers.get("content-type", "").startswith("image/"):
-        return resp.content
+    resp_json = resp.json()
+    # Expect: {"image":"<base64>"} or {"images":[{"image":"..."}]}
+    if "image" in resp_json:
+        b64 = resp_json["image"]
+    else:
+        images = resp_json.get("images") or []
+        if not images or "image" not in images[0]:
+            raise RuntimeError(f"Unexpected Stability response: {resp_json}")
+        b64 = images[0]["image"]
 
-    data = resp.json()
-    if isinstance(data, dict) and "images" in data and data["images"]:
-        return base64.b64decode(data["images"][0])
-
-    raise RuntimeError(f"Unexpected response from HF image API: {data}")
+    return base64.b64decode(b64)
 
 
 def main():
@@ -102,12 +96,11 @@ def main():
     out_name = f"{safe_ref(ref)}.png"
     out_path = IMAGES_DIR / out_name
 
-    prompt, neg_prompt = build_prompt(data)
-    print("Requesting dark cinematic image from Hugging Face model:", HF_T2I_MODEL)
+    prompt = build_prompt(data)
+    print("Requesting dark cinematic image from Stability SDXL")
     print("Prompt:", prompt)
-    print("Negative prompt:", neg_prompt)
 
-    image_bytes = call_hf_t2i(prompt, neg_prompt)
+    image_bytes = call_stability_t2i(prompt)
 
     with out_path.open("wb") as f:
         f.write(image_bytes)
