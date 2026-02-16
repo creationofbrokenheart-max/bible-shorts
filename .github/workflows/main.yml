@@ -37,6 +37,7 @@ jobs:
           CAMB_API_KEY: ${{ secrets.CAMB_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           STABILITY_API_KEY: ${{ secrets.STABILITY_API_KEY }}
+          REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
           VIDEO_FONT_PATH: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
         run: |
           python scripts/select_verse.py
