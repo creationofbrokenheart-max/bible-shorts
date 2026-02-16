@@ -8,10 +8,10 @@ import requests
 CURRENT_VERSE_JSON = Path("current_verse.json")
 OUTPUT_DIR = Path("outputs/audio")
 
-# Generic TTS settings – customize for your provider.
-# Example: for CAMB.AI or ElevenLabs, set these in GitHub Secrets / env.[web:17][web:20][web:63][web:64]
+# Generic TTS settings – these are provided via GitHub Actions env.
+# Example: for CAMB.AI set API key + URL in secrets.[web:58][web:61][web:62]
 TTS_API_KEY = os.getenv("TTS_API_KEY")
-TTS_API_URL = os.getenv("TTS_API_URL")  # e.g. https://client.camb.ai/apis/tts or your chosen TTS endpoint
+TTS_API_URL = os.getenv("TTS_API_URL")  # e.g. https://client.camb.ai/apis/tts (check docs)[web:58][web:60][web:99]
 TTS_VOICE_ID = os.getenv("TTS_VOICE_ID", "")  # optional, depending on provider
 
 
@@ -29,16 +29,22 @@ def save_current_verse(data):
 
 
 def build_tts_payload(text_te: str) -> dict:
-    # Example CAMB.AI style – adjust keys as per their API docs.[web:58][web:60][web:99]
+    """
+    Build the request body for your TTS provider.
+
+    You MUST adjust this function to match the API you're using.
+    Below is a generic example shaped like many TTS APIs.
+    """
+
+    # Example CAMB.AI-like payload (adjust fields per their docs).[web:58][web:60][web:61][web:62]
     payload = {
-        "input": text_te,          # or "text": text_te
-        "source_language": "te",   # Telugu code if required
-        # "target_language": "te", # if using translated-tts endpoint
+        "text": text_te,
+        # "source_language": "te",  # if required by endpoint
+        # "target_language": "te",  # for translated-tts endpoint[web:60][web:99]
     }
     if TTS_VOICE_ID:
         payload["voice_id"] = TTS_VOICE_ID
     return payload
-
 
 
 def call_tts_api(text_te: str) -> bytes:
@@ -46,9 +52,10 @@ def call_tts_api(text_te: str) -> bytes:
         print("TTS_API_KEY or TTS_API_URL not set in environment.", file=sys.stderr)
         sys.exit(1)
 
+    # Many APIs use either x-api-key or Authorization: Bearer.
+    # For CAMB.AI, check their docs; they show x-api-key usage.[web:58][web:61][web:62]
     headers = {
         "Content-Type": "application/json",
-        # Many providers use `x-api-key` or `Authorization: Bearer`.[web:58][web:60][web:61][web:64]
         "x-api-key": TTS_API_KEY,
     }
 
@@ -71,4 +78,52 @@ def call_tts_api(text_te: str) -> bytes:
     if "application/json" in content_type.lower():
         data = resp.json()
         # Example: handle a `audio_url` field and download it
-        audio_url = data.get("audio_url"
+        audio_url = data.get("audio_url") or data.get("url")
+        if not audio_url:
+            print("No audio URL found in TTS JSON response.", file=sys.stderr)
+            sys.exit(1)
+        try:
+            audio_resp = requests.get(audio_url, timeout=60)
+        except requests.RequestException as e:
+            print(f"Error downloading audio file: {e}", file=sys.stderr)
+            sys.exit(1)
+        if audio_resp.status_code != 200:
+            print(f"Error downloading audio: {audio_resp.status_code}", file=sys.stderr)
+            sys.exit(1)
+        return audio_resp.content
+
+    # If not JSON, assume raw audio bytes
+    return resp.content
+
+
+def main():
+    data = load_current_verse()
+    reference = data.get("reference")
+    summary_te = data.get("summary_te")
+
+    if not reference:
+        print("current_verse.json must contain 'reference'.", file=sys.stderr)
+        sys.exit(1)
+    if not summary_te:
+        print("current_verse.json must contain 'summary_te' (Telugu text).", file=sys.stderr)
+        sys.exit(1)
+
+    audio_bytes = call_tts_api(summary_te)
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    safe_ref = reference.replace(" ", "_").replace(":", "-")
+    out_path = OUTPUT_DIR / f"{safe_ref}.mp3"
+
+    with open(out_path, "wb") as f:
+        f.write(audio_bytes)
+
+    print(f"Saved TTS audio to {out_path}")
+
+    # Save path in JSON for next step (video generation)
+    data["audio_path"] = str(out_path)
+    save_current_verse(data)
+    print("Updated current_verse.json with audio_path.")
+
+
+if __name__ == "__main__":
+    main()
