@@ -82,19 +82,28 @@ def call_deepseek_via_openrouter(prompt: str) -> dict:
         print(f"Error calling DeepSeek via OpenRouter: {e}", file=sys.stderr)
         sys.exit(1)
 
-    content = completion.choices[0].message.content
+content = completion.choices[0].message.content
 
-    try:
-        data = json.loads(content)
-    except json.JSONDecodeError:
-        print("Failed to parse LLM response as JSON. Raw content:", file=sys.stderr)
-        print(content, file=sys.stderr)
-        sys.exit(1)
+# Strip common Markdown code fences around JSON
+content_stripped = content.strip()
+if content_stripped.startswith("```"):
+    # Remove leading ```json or ``` and trailing ```
+    content_stripped = content_stripped.lstrip("`")
+    # After lstrip, content may start with 'json' on first line; drop first line if it is 'json'
+    lines = content_stripped.splitlines()
+    if lines and lines[0].strip().lower() in ("json",):
+        lines = lines[1:]
+    content_stripped = "\n".join(lines)
+    # Remove any trailing ``` if present
+    content_stripped = content_stripped.strip("`").strip()
 
-    required_keys = {"summary_en", "summary_te", "title_te"}
-    if not required_keys.issubset(data.keys()):
-        print("LLM JSON missing required keys. Got:", data.keys(), file=sys.stderr)
-        sys.exit(1)
+try:
+    data = json.loads(content_stripped)
+except json.JSONDecodeError:
+    print("Failed to parse LLM response as JSON. Raw content:", file=sys.stderr)
+    print(content, file=sys.stderr)
+    sys.exit(1)
+
 
     return data
 
