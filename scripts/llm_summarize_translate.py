@@ -3,12 +3,13 @@ import os
 import sys
 from pathlib import Path
 
-from huggingface_hub import InferenceClient
-
-HF_TOKEN = os.getenv("HF_TOKEN")
-HF_MODEL = os.getenv("HF_MODEL", "mistralai/Mistral-7B-Instruct-v0.2") 
+from huggingface_hub import InferenceClient  # HF Inference API[web:111][web:113]
 
 CURRENT_VERSE_JSON = Path("current_verse.json")
+
+HF_TOKEN = os.getenv("HF_TOKEN")
+# Use an open, non-Meta instruct model by default.[web:104][web:118]
+HF_MODEL = os.getenv("HF_MODEL", "mistralai/Mistral-7B-Instruct-v0.2")
 
 
 def load_current_verse():
@@ -60,7 +61,7 @@ def call_hf_llm(prompt: str) -> dict:
     client = InferenceClient(
         model=HF_MODEL,
         token=HF_TOKEN,
-    )  # uses HF Inference API, not router[web:22][web:24][web:110]
+    )  # talks directly to HF Inference API[web:111][web:113]
 
     try:
         completion = client.chat_completion(
