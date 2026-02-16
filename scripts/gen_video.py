@@ -1,129 +1,93 @@
 import json
-import os
 import subprocess
-import sys
 from pathlib import Path
 
-CURRENT_VERSE_JSON = Path("current_verse.json")
+CURRENT_VERSE_PATH = Path("current_verse.json")
 VIDEOS_DIR = Path("outputs/videos")
-ASSETS_DIR = Path("assets")
-
-# Path to background music (optional but recommended)
-BG_MUSIC_PATH = ASSETS_DIR / "bg_music_low.mp3"
-
-# FFmpeg binary (assume available in PATH)
-FFMPEG_BIN = os.getenv("FFMPEG_BIN", "ffmpeg")
 
 
 def load_current_verse():
-    if not CURRENT_VERSE_JSON.exists():
-        print("current_verse.json not found. Run previous steps first.", file=sys.stderr)
-        sys.exit(1)
-    with CURRENT_VERSE_JSON.open("r", encoding="utf-8") as f:
+    if not CURRENT_VERSE_PATH.exists():
+        raise FileNotFoundError(
+            f"{CURRENT_VERSE_PATH} not found. Run previous scripts first."
+        )
+    with CURRENT_VERSE_PATH.open("r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def run_ffmpeg(cmd):
-    print("Running FFmpeg command:")
-    print(" ".join(cmd))
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if proc.returncode != 0:
-        print("FFmpeg failed:")
-        print(proc.stderr)
-        sys.exit(1)
-    else:
-        print(proc.stderr)
+def save_current_verse(data: dict):
+    with CURRENT_VERSE_PATH.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def safe_ref(ref: str) -> str:
+    return (
+        ref.replace(" ", "_")
+        .replace(":", "-")
+        .replace("/", "_")
+    )
 
 
 def main():
     data = load_current_verse()
 
-    reference = data.get("reference")
-    summary_te = data.get("summary_te")
-    bg_image_path = data.get("background_image_path")
+    ref = data.get("reference") or data.get("verse_ref")
+    if not ref:
+        raise ValueError("current_verse.json must contain 'reference' or 'verse_ref'.")
+
+    bg_path = data.get("background_image_path")
     audio_path = data.get("audio_path")
 
-    if not reference or not summary_te or not bg_image_path or not audio_path:
-        print(
-            "current_verse.json must contain 'reference', 'summary_te', "
-            "'background_image_path', and 'audio_path'.",
-            file=sys.stderr,
+    if not bg_path or not audio_path:
+        raise ValueError(
+            "current_verse.json must contain 'background_image_path' and 'audio_path'."
         )
-        sys.exit(1)
 
-    bg_image = Path(bg_image_path)
+    image_path = Path(bg_path)
     audio_file = Path(audio_path)
 
-    if not bg_image.exists():
-        print(f"Background image not found: {bg_image}", file=sys.stderr)
-        sys.exit(1)
+    if not image_path.exists():
+        raise FileNotFoundError(f"Background image not found: {image_path}")
     if not audio_file.exists():
-        print(f"Audio file not found: {audio_file}", file=sys.stderr)
-        sys.exit(1)
+        raise FileNotFoundError(f"Audio file not found: {audio_file}")
 
-    # Prepare output
     VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
-    safe_ref = reference.replace(" ", "_").replace(":", "-")
-    output_video = VIDEOS_DIR / f"{safe_ref}.mp4"
 
-    # Basic settings
-    duration = 15  # seconds
-    fps = 30
-    width = 1080
-    height = 1920
+    out_name = f"{safe_ref(ref)}.mp4"
+    video_path = VIDEOS_DIR / out_name
 
-    # Text to render (Telugu explanation)
-    text_te = summary_te.replace("'", "’")  # avoid breaking drawtext with single quotes
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-loop",
+        "1",
+        "-i",
+        str(image_path),
+        "-i",
+        str(audio_file),
+        "-c:v",
+        "libx264",
+        "-tune",
+        "stillimage",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-pix_fmt",
+        "yuv420p",
+        "-shortest",
+        str(video_path),
+    ]
 
-    # Font: you must have a font that supports Telugu on the runner.
-    # For now, we use a generic path; you can adjust later (e.g. Noto Sans Telugu).
-    fontfile = os.getenv("VIDEO_FONT_PATH", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+    print("Running ffmpeg:", " ".join(cmd))
+    subprocess.run(cmd, check=True)
 
-    # Build FFmpeg command:
-    # - loop background image for `duration`
-    # - overlay Telugu text in the lower part of the frame
-    # - mix TTS audio with background music (if present)
-    #
-    # drawtext basics:[web:68][web:69]
-    # x=(w-text_w)/2 centers horizontally
-    # y=h*0.7 puts text near bottom.
-    filter_complex_parts = []
+    data["video_path"] = str(video_path)
+    save_current_verse(data)
 
-    # Video chain: image -> scale -> drawtext
-    video_chain = (
-        f"[0:v]scale={width}:{height},format=yuv420p,"
-        f"drawtext=fontfile='{fontfile}':"
-        f"text='{text_te}':"
-        "fontcolor=white:"
-        "fontsize=48:"
-        "box=1:boxcolor=black@0.4:boxborderw=20:"
-        "x=(w-text_w)/2:"
-        "y=h*0.7"
-        "[v]"
-    )
-    filter_complex_parts.append(video_chain)
+    print(f"Saved video to {video_path}")
+    print("Updated current_verse.json with video_path.")
 
-    # Audio chain: TTS (1) + optional bg music (2)
-    if BG_MUSIC_PATH.exists():
-        # Mix both audio inputs[web:71]
-        audio_chain = (
-            "[1:a]volume=1.0[a1];"
-            "[2:a]volume=0.2[a2];"
-            "[a1][a2]amix=inputs=2:duration=first[aout]"
-        )
-        filter_complex_parts.append(audio_chain)
-        audio_map = "[aout]"
-        audio_inputs = [
-            "-i", str(audio_file),
-            "-i", str(BG_MUSIC_PATH),
-        ]
-    else:
-        # Only TTS audio
-        audio_chain = "[1:a]volume=1.0[aout]"
-        filter_complex_parts.append(audio_chain)
-        audio_map = "[aout]"
-        audio_inputs = ["-i", str(audio_file)]
 
-    filter_complex = ";".join(filter_complex_parts)
-
-    cmd 
+if __name__ == "__main__":
+    main()
