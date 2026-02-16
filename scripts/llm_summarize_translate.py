@@ -9,7 +9,7 @@ CURRENT_VERSE_JSON = Path("current_verse.json")
 
 HF_TOKEN = os.getenv("HF_TOKEN")
 # Use an open, non-Meta instruct model by default.[web:104][web:118]
-HF_MODEL = os.getenv("HF_MODEL", "mistralai/Mistral-7B-Instruct-v0.2")
+HF_MODEL = os.getenv("HF_MODEL", "HuggingFaceH4/zephyr-7b-beta")
 
 
 def load_current_verse():
