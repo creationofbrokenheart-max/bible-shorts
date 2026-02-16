@@ -1,14 +1,18 @@
 import json
 import os
 from pathlib import Path
-import base64
-import requests
+from io import BytesIO
+
+from huggingface_hub import InferenceClient  # pip install huggingface_hub
+
 
 CURRENT_VERSE_PATH = Path("current_verse.json")
 IMAGES_DIR = Path("outputs/images")
 
 HF_TOKEN = os.getenv("HF_TOKEN")
-HF_T2I_MODEL = os.getenv("HF_T2I_MODEL", "stabilityai/stable-diffusion-xl-base-1.0")
+# Pick a text-to-image model that works with InferenceClient.text_to_image
+# You can change this via env if you want a different model.
+HF_T2I_MODEL = os.getenv("HF_T2I_MODEL", "black-forest-labs/FLUX.1-dev")
 
 
 def load_current_verse():
@@ -57,36 +61,19 @@ def call_hf_t2i(prompt: str, negative_prompt: str) -> bytes:
     if not HF_TOKEN:
         raise RuntimeError("HF_TOKEN is not set.")
 
-    url = f"https://api-inference.huggingface.co/models/{HF_T2I_MODEL}"
-    headers = {
-        "Authorization": f"Bearer {HF_TOKEN}",
-        "Content-Type": "application/json",
-    }
+    # InferenceClient will route to a suitable backend; no more 410 on api-inference
+    client = InferenceClient(api_key=HF_TOKEN)  # uses Hugging Face Inference API[web:268]
 
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            "negative_prompt": negative_prompt,
-            "num_inference_steps": 30,
-            "guidance_scale": 7.5,
-            "width": 1080,
-            "height": 1920,
-        },
-    }
+    image = client.text_to_image(
+        prompt=prompt,
+        model=HF_T2I_MODEL,
+        negative_prompt=negative_prompt,
+        size="1080x1920",  # vertical for Shorts
+    )
 
-    resp = requests.post(url, headers=headers, json=payload, timeout=120)
-    resp.raise_for_status()
-
-    # HF may return raw bytes or base64 or image/json; handle bytes directly first
-    if resp.headers.get("content-type", "").startswith("image/"):
-        return resp.content
-
-    data = resp.json()
-    # If using image generation endpoints returning base64
-    if isinstance(data, dict) and "images" in data and data["images"]:
-        return base64.b64decode(data["images"][0])
-
-    raise RuntimeError(f"Unexpected response from HF image API: {data}")
+    buf = BytesIO()
+    image.save(buf, format="PNG")
+    return buf.getvalue()
 
 
 def main():
