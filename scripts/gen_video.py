@@ -43,15 +43,12 @@ def run_ffmpeg(cmd):
 
 
 def ffmpeg_escape_text(text: str) -> str:
-    """
-    Escape text for ffmpeg drawtext (inside single quotes).[web:387][web:391]
-    """
     if not text:
         return ""
-    text = text.replace("\\", "\\\\")   # backslashes
-    text = text.replace("'", r"\'")     # single quotes
-    text = text.replace("%", r"\%")     # percent
-    text = text.replace("\n", " ")      # newlines -> space
+    text = text.replace("\\", "\\\\")
+    text = text.replace("'", r"\'")
+    text = text.replace("%", r"\%")
+    text = text.replace("\n", " ")
     return text
 
 
@@ -59,7 +56,7 @@ def main() -> int:
     try:
         data = load_current_verse()
 
-        required_keys = ["background_image_path", "audio_path", "reference", "summary_en"]
+        required_keys = ["background_image_path", "audio_path", "reference", "verse"]
         missing = [k for k in required_keys if k not in data or not data[k]]
         if missing:
             raise ValueError(
@@ -69,7 +66,7 @@ def main() -> int:
         bg_path = str((BASE_DIR / data["background_image_path"]).resolve())
         audio_path = str((BASE_DIR / data["audio_path"]).resolve())
         reference = data["reference"]
-        summary_en = data["summary_en"]
+        verse = data["verse"]
 
         OUTPUT_VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
         TMP_DIR.mkdir(parents=True, exist_ok=True)
@@ -78,38 +75,36 @@ def main() -> int:
         main_out = OUTPUT_VIDEOS_DIR / f"{safe_ref}.mp4"
         tmp_main = TMP_DIR / f"{safe_ref}_main.mp4"
 
-        overlay_text = ffmpeg_escape_text(summary_en)
+        overlay_text = ffmpeg_escape_text(verse)
 
-        # Scale/crop to 1080x1920, then overlay dark layer, then draw text.[web:394][web:395]
+        # Background scaled + padded, then full verse as multi-line caption centered.[web:394][web:412]
         filter_complex = (
             f"[0:v]scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=decrease,"
-            f"pad={VIDEO_WIDTH}:{VIDEO_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black@0.0[scaled];"
-            f"color=black@0.5:size={VIDEO_WIDTH}x{VIDEO_HEIGHT} [blk];"
-            f"[scaled][blk]overlay=0:0:shortest=1[base];"
+            f"pad={VIDEO_WIDTH}:{VIDEO_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black@0.0[base];"
             f"[base]drawtext=fontfile='{VIDEO_FONT_PATH}':"
             f"text='{overlay_text}':"
-            "fontcolor=white:fontsize=52:line_spacing=10:box=1:boxcolor=black@0.6:boxborderw=20:"
-            "x=(w-text_w)/2:y=h*0.65[vmain];"
+            "fontcolor=white:fontsize=64:line_spacing=10:box=1:boxcolor=black@0.6:boxborderw=24:"
+            "x=(w-text_w)/2:y=(h-text_h)/2[vmain];"
             "[1:a]anull[a]"
         )
 
         cmd_main = [
-        "ffmpeg",
-        "-y",
-        "-i", bg_path,
-        "-i", audio_path,
-        "-filter_complex", filter_complex,
-        "-map", "[vmain]",
-        "-map", "[a]",
-        "-c:v", "libx264",
-        "-tune", "stillimage",
-        "-pix_fmt", "yuv420p",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-shortest",
-        str(tmp_main),
-       ]
-
+            "ffmpeg",
+            "-y",
+            "-loop", "1",
+            "-i", bg_path,
+            "-i", audio_path,
+            "-filter_complex", filter_complex,
+            "-map", "[vmain]",
+            "-map", "[a]",
+            "-c:v", "libx264",
+            "-tune", "stillimage",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",              # stop when audio ends
+            str(tmp_main),
+        ]
 
         run_ffmpeg(cmd_main)
         os.replace(tmp_main, main_out)
