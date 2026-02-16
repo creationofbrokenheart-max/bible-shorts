@@ -56,7 +56,7 @@ def main() -> int:
     try:
         data = load_current_verse()
 
-        required_keys = ["background_image_path", "audio_path", "reference", "verse"]
+        required_keys = ["background_image_path", "audio_path", "reference", "verse","verse_text"]
         missing = [k for k in required_keys if k not in data or not data[k]]
         if missing:
             raise ValueError(
@@ -66,7 +66,7 @@ def main() -> int:
         bg_path = str((BASE_DIR / data["background_image_path"]).resolve())
         audio_path = str((BASE_DIR / data["audio_path"]).resolve())
         reference = data["reference"]
-        verse = data["verse"]
+        verse = data["verse_text"]
 
         OUTPUT_VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
         TMP_DIR.mkdir(parents=True, exist_ok=True)
