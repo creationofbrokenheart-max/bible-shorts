@@ -2,12 +2,12 @@ name: Daily Bible Shorts
 
 on:
   schedule:
-    # Every day at 03:00 UTC (adjust as you like)
+    # Every day at 03:00 UTC
     - cron: "0 3 * * *"
-  workflow_dispatch: {}  # allow manual run
+  workflow_dispatch: {}
 
 jobs:
-  generate-and-upload:
+  generate-short:
     runs-on: ubuntu-latest
 
     steps:
@@ -29,25 +29,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run pipeline (select, fetch, LLM, image, TTS, video, upload)
+      - name: Run pipeline (select, fetch, LLM, image, TTS, video)
         env:
-          # Bible API base URL
-          BIBLE_API_BASE: "https://bible-api.com"  # [web:14][web:16]
-
-          # Hugging Face (LLM + image)
+          BIBLE_API_BASE: "https://bible-api.com"
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          # No HF_MODEL here – let the script default to mistral
-          HF_T2I_MODEL: "stabilityai/stable-diffusion-xl-base-1.0"  # image model[web:57]
-
-          # TTS provider (CAMB.AI or similar)
-          TTS_API_KEY: ${{ secrets.TTS_API_KEY }}
-          TTS_API_URL: ${{ secrets.TTS_API_URL }}
-          TTS_VOICE_ID: ${{ secrets.TTS_VOICE_ID }}
-          TTS_LANGUAGE: ${{ secrets.TTS_LANGUAGE }}
+          HF_T2I_MODEL: "stabilityai/stable-diffusion-xl-base-1.0"
           CAMB_API_KEY: ${{ secrets.CAMB_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-
-          # Optional: font path for drawtext
           VIDEO_FONT_PATH: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
         run: |
           python scripts/select_verse.py
@@ -56,13 +44,3 @@ jobs:
           python scripts/gen_image.py
           python scripts/gen_tts.py
           python scripts/gen_video.py
-          
-
-      # Optional commit step if you later update verses.xlsx in code
-      # - name: Commit verse status update
-      #   run: |
-      #     git config user.name "github-actions"
-      #     git config user.email "actions@github.com"
-      #     git add verses.xlsx current_verse.json
-      #     git commit -m "Update verse status" || echo "No changes to commit"
-      #     git push
