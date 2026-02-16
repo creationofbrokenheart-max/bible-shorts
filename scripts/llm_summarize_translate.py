@@ -1,145 +1,159 @@
 import json
 import os
-import sys
 from pathlib import Path
+import requests
 
-from openai import OpenAI  # OpenAI-compatible client
-
-CURRENT_VERSE_JSON = Path("current_verse.json")
+CURRENT_VERSE_PATH = Path("current_verse.json")
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-# DeepSeek model on OpenRouter[web:130]
-DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek/deepseek-chat")
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+MODEL = "deepseek/deepseek-r1"
 
 
 def load_current_verse():
-    if not CURRENT_VERSE_JSON.exists():
-        print("current_verse.json not found. Run previous steps first.", file=sys.stderr)
-        sys.exit(1)
-    with CURRENT_VERSE_JSON.open("r", encoding="utf-8") as f:
+    if not CURRENT_VERSE_PATH.exists():
+        raise FileNotFoundError(f"{CURRENT_VERSE_PATH} not found. Run select_verse.py and fetch_verse_text.py first.")
+    with CURRENT_VERSE_PATH.open("r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def save_current_verse(data):
-    with CURRENT_VERSE_JSON.open("w", encoding="utf-8") as f:
+def save_current_verse(data: dict):
+    with CURRENT_VERSE_PATH.open("w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def build_prompt(verse_en: str, reference: str) -> str:
+def strip_code_fence(content):
+    """
+    Accept either a string or a list of strings and remove leading/trailing
+    ``` fences if present.
+    """
+    # Normalize list -> string
+    if isinstance(content, list):
+        content = "\n".join(str(x) for x in content)
+
+    if not isinstance(content, str):
+        return str(content)
+
+    text = content.strip()
+
+    # If it starts with ``` treat it as fenced block
+    if text.startswith("```"):
+        lines = text.splitlines()
+
+        # Drop first line (``` or ```json)
+        if lines:
+            lines = lines[1:]
+
+        # Drop last line if it looks like ```
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+
+        return "\n".join(lines).strip()
+
+    return text
+
+
+def build_prompt(verse_ref: str, verse_text: str) -> str:
     return f"""
-You are helping create YouTube Shorts for Telugu Christian teenagers.
+You are helping create a 30–60 second Bible short.
 
-I will give you a Bible verse in English and its reference.
+Given this verse:
 
-1) First, write ONE short English summary sentence that explains the meaning in very simple language for a teenager in India.
-   - No old-fashioned words.
-   - Max 25 words.
+Reference: {verse_ref}
+Verse: {verse_text}
 
-2) Then write ONE short Telugu explanation sentence that encourages them in daily life.
-   - Use simple, modern Telugu.
-   - Max 25 words.
+1) Write ONE short-sentence summary in simple English, max 22 words, directly encouraging the viewer (use “you”, not “we”).
+2) Translate ONLY that summary into Telugu.
+3) Create a short Telugu title (max 20 characters) that fits as a YouTube Short title.
 
-3) Then give ONE very short Telugu title (3–6 words) that can be used as a YouTube video title.
-
-Format your answer as strict JSON with these fields only:
-{{
-  "summary_en": "...",
-  "summary_te": "...",
-  "title_te": "..."
-}}
-
-Bible reference: {reference}
-Verse (English): {verse_en}
+Respond ONLY in strict JSON with keys:
+- "summary_en"
+- "summary_te"
+- "title_te"
 """.strip()
-
-
-def strip_code_fence(raw: str) -> str:
-    """
-    Remove ```...``` or ```json...``` fences if the model wraps JSON in Markdown.
-    """
-    s = raw.strip()
-    if not s.startswith("```"):
-        return s
-
-    lines = s.splitlines()
-    # drop first line if it's ``` or ```json
-    if lines and lines.strip().startswith("```"):
-        lines = lines[1:]
-    # drop last line if it's ```
-    if lines and lines[-1].strip().startswith("```"):
-        lines = lines[:-1]
-    return "\n".join(lines).strip()
 
 
 def call_deepseek_via_openrouter(prompt: str) -> dict:
     if not OPENROUTER_API_KEY:
-        print("OPENROUTER_API_KEY environment variable is not set.", file=sys.stderr)
-        sys.exit(1)
+        raise RuntimeError("OPENROUTER_API_KEY is not set.")
 
-    client = OpenAI(
-        base_url=OPENROUTER_BASE_URL,
-        api_key=OPENROUTER_API_KEY,
-    )
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
 
-    try:
-        completion = client.chat.completions.create(
-            model=DEEPSEEK_MODEL,
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant for Christian teen content creation."},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=400,
-            temperature=0.4,
-        )
-    except Exception as e:
-        print(f"Error calling DeepSeek via OpenRouter: {e}", file=sys.stderr)
-        sys.exit(1)
+    body = {
+        "model": MODEL,
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant for creating Bible video shorts."},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.7,
+    }
 
-    content = completion.choices[0].message.content
+    resp = requests.post(OPENROUTER_URL, headers=headers, json=body, timeout=120)
+    resp.raise_for_status()
+    data = resp.json()
+
+    choice = data["choices"]
+    content = choice["message"]["content"]
+
+    # OpenRouter / providers may return list segments
+    if isinstance(content, list):
+        chunks = []
+        for c in content:
+            if isinstance(c, dict) and "text" in c:
+                chunks.append(c["text"])
+            elif isinstance(c, str):
+                chunks.append(c)
+        content = "\n".join(chunks)
 
     content_stripped = strip_code_fence(content)
 
     try:
-        data = json.loads(content_stripped)
-    except json.JSONDecodeError:
-        print("Failed to parse LLM response as JSON. Raw content:", file=sys.stderr)
-        print(content, file=sys.stderr)
-        sys.exit(1)
+        parsed = json.loads(content_stripped)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Failed to parse JSON from model response: {e}\nRaw content:\n{content_stripped}") from e
 
-    if not isinstance(data, dict):
-        print("LLM JSON root is not an object. Got:", type(data), file=sys.stderr)
-        sys.exit(1)
-
-    required_keys = {"summary_en", "summary_te", "title_te"}
-    if not required_keys.issubset(data.keys()):
-        print("LLM JSON missing required keys. Got keys:", list(data.keys()), file=sys.stderr)
-        sys.exit(1)
-
-    return data
+    return parsed
 
 
 def main():
-    current = load_current_verse()
+    data = load_current_verse()
 
-    verse_en = current.get("verse_en")
-    reference = current.get("reference")
+    verse_ref = data.get("verse_ref") or data.get("reference") or data.get("verse_reference")
+    verse_en = data.get("verse_en") or data.get("verse_text")
 
-    if not verse_en or not reference:
-        print("current_verse.json must contain 'verse_en' and 'reference'.", file=sys.stderr)
-        sys.exit(1)
+    if not verse_ref or not verse_en:
+        raise ValueError("current_verse.json must contain 'verse_ref' (or similar) and 'verse_en'.")
 
-    prompt = build_prompt(verse_en=verse_en, reference=reference)
+    print(f"Summarizing and translating verse: {verse_ref}")
+    prompt = build_prompt(verse_ref, verse_en)
     result = call_deepseek_via_openrouter(prompt)
 
-    current["summary_en"] = result["summary_en"]
-    current["summary_te"] = result["summary_te"]
-    current["title_te"] = result["title_te"]
+    summary_en = result.get("summary_en")
+    summary_te = result.get("summary_te")
+    title_te = result.get("title_te")
 
-    save_current_verse(current)
+    if not summary_en or not summary_te or not title_te:
+        raise ValueError(f"Missing keys in model result: {result}")
+
+    data["summary_en"] = summary_en
+    data["summary_te"] = summary_te
+    data["title_te"] = title_te
+
+    save_current_verse(data)
 
     print("Updated current_verse.json with summary_en, summary_te, title_te.")
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    print(json.dumps(
+        {
+            "summary_en": summary_en,
+            "summary_te": summary_te,
+            "title_te": title_te,
+        },
+        ensure_ascii=False,
+        indent=2,
+    ))
 
 
 if __name__ == "__main__":
