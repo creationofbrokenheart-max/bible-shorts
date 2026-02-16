@@ -99,16 +99,16 @@ def call_tts_api(text_te: str) -> bytes:
 def main():
     data = load_current_verse()
     reference = data.get("reference")
-    summary_te = data.get("summary_te")
+    summary_en = data.get("summary_en")  # English
 
     if not reference:
         print("current_verse.json must contain 'reference'.", file=sys.stderr)
         sys.exit(1)
-    if not summary_te:
-        print("current_verse.json must contain 'summary_te' (Telugu text).", file=sys.stderr)
+    if not summary_en:
+        print("current_verse.json must contain 'summary_en' (English text).", file=sys.stderr)
         sys.exit(1)
 
-    audio_bytes = call_tts_api(summary_te)
+    audio_bytes = call_tts_api(summary_en)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     safe_ref = reference.replace(" ", "_").replace(":", "-")
