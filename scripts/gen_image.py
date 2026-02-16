@@ -1,106 +1,119 @@
-import io
 import json
 import os
-import sys
 from pathlib import Path
-
+import base64
 import requests
-from PIL import Image
 
-CURRENT_VERSE_JSON = Path("current_verse.json")
-OUTPUT_DIR = Path("outputs/images")
+CURRENT_VERSE_PATH = Path("current_verse.json")
+IMAGES_DIR = Path("outputs/images")
 
-# Hugging Face text-to-image Inference API.[web:57]
 HF_TOKEN = os.getenv("HF_TOKEN")
-# You can change model id if you prefer another (e.g. sdxl, flux, etc.).
-HF_T2I_MODEL = os.getenv(
-    "HF_T2I_MODEL",
-    "stabilityai/stable-diffusion-xl-base-1.0",
-)
-HF_T2I_URL = f"https://router.huggingface.co/hf-inference/models/{HF_T2I_MODEL}"
-
+HF_T2I_MODEL = os.getenv("HF_T2I_MODEL", "stabilityai/stable-diffusion-xl-base-1.0")
 
 
 def load_current_verse():
-    if not CURRENT_VERSE_JSON.exists():
-        print("current_verse.json not found. Run previous steps first.", file=sys.stderr)
-        sys.exit(1)
-    with CURRENT_VERSE_JSON.open("r", encoding="utf-8") as f:
+    if not CURRENT_VERSE_PATH.exists():
+        raise FileNotFoundError(
+            f"{CURRENT_VERSE_PATH} not found. Run select_verse.py and fetch_verse_text.py first."
+        )
+    with CURRENT_VERSE_PATH.open("r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def build_image_prompt(reference: str, summary_en: str) -> str:
-    """
-    Build a short text prompt describing the background.
-    No text in the image, just scenery suitable for a Bible verse reel.
-    """
-    base = (
-        "Peaceful cinematic nature background for a Christian Bible verse video, "
-        "soft warm sunrise light, gentle camera feel, no text, no people, "
-        "vertical framing, high quality."
+def save_current_verse(data: dict):
+    with CURRENT_VERSE_PATH.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def safe_ref(ref: str) -> str:
+    return (
+        ref.replace(" ", "_")
+        .replace(":", "-")
+        .replace("/", "_")
     )
-    # Lightly condition on verse theme if summary is available
-    if summary_en:
-        return f"{base} Theme: {summary_en}"
-    return base
 
 
-def generate_image(prompt: str, out_path: Path):
+def build_prompt(data: dict) -> tuple[str, str]:
+    reference = data.get("reference") or data.get("verse_ref") or ""
+    summary_en = data.get("summary_en") or data.get("verse_en") or ""
+
+    prompt = (
+        f"Cinematic Bible artwork, ultra detailed, 4K, high dynamic range. "
+        f"Scene inspired by {reference} from the Bible. "
+        f"Theme: {summary_en} "
+        f"dark background, rich shadows, high contrast, moody lighting, "
+        f"dramatic light rays, volumetric lighting, no text, no watermark."
+    )
+
+    negative_prompt = (
+        "text, watermark, logo, words, letters, caption, "
+        "lowres, blurry, distorted, ugly, oversaturated"
+    )
+
+    return prompt, negative_prompt
+
+
+def call_hf_t2i(prompt: str, negative_prompt: str) -> bytes:
     if not HF_TOKEN:
-        print("HF_TOKEN environment variable is not set.", file=sys.stderr)
-        sys.exit(1)
+        raise RuntimeError("HF_TOKEN is not set.")
 
+    url = f"https://api-inference.huggingface.co/models/{HF_T2I_MODEL}"
     headers = {
         "Authorization": f"Bearer {HF_TOKEN}",
-        "Accept": "image/png",
+        "Content-Type": "application/json",
     }
 
-    payload = {"inputs": prompt}
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "negative_prompt": negative_prompt,
+            "num_inference_steps": 30,
+            "guidance_scale": 7.5,
+            "width": 1080,
+            "height": 1920,
+        },
+    }
 
-    print(f"Requesting image from Hugging Face model: {HF_T2I_MODEL}")
-    try:
-        resp = requests.post(HF_T2I_URL, headers=headers, json=payload, timeout=60)
-    except requests.RequestException as e:
-        print(f"Error calling HF text-to-image API: {e}", file=sys.stderr)
-        sys.exit(1)
+    resp = requests.post(url, headers=headers, json=payload, timeout=120)
+    resp.raise_for_status()
 
-    if resp.status_code != 200:
-        print(f"HF text-to-image error {resp.status_code}: {resp.text}", file=sys.stderr)
-        sys.exit(1)
+    # HF may return raw bytes or base64 or image/json; handle bytes directly first
+    if resp.headers.get("content-type", "").startswith("image/"):
+        return resp.content
 
-    # resp.content is raw image bytes[web:57]
-    image_bytes = io.BytesIO(resp.content)
-    try:
-        img = Image.open(image_bytes)
-    except Exception as e:
-        print(f"Failed to decode image bytes: {e}", file=sys.stderr)
-        sys.exit(1)
+    data = resp.json()
+    # If using image generation endpoints returning base64
+    if isinstance(data, dict) and "images" in data and data["images"]:
+        return base64.b64decode(data["images"][0])
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    img.save(out_path, format="PNG")
-    print(f"Saved background image to {out_path}")
+    raise RuntimeError(f"Unexpected response from HF image API: {data}")
 
 
 def main():
     data = load_current_verse()
-    reference = data.get("reference")
-    summary_en = data.get("summary_en", "")
 
-    if not reference:
-        print("current_verse.json must contain 'reference'.", file=sys.stderr)
-        sys.exit(1)
+    ref = data.get("reference") or data.get("verse_ref")
+    if not ref:
+        raise ValueError("current_verse.json must contain 'reference' or 'verse_ref'.")
 
-    prompt = build_image_prompt(reference, summary_en)
-    safe_ref = reference.replace(" ", "_").replace(":", "-")
-    out_path = OUTPUT_DIR / f"{safe_ref}.png"
+    IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+    out_name = f"{safe_ref(ref)}.png"
+    out_path = IMAGES_DIR / out_name
 
-    generate_image(prompt, out_path)
+    prompt, neg_prompt = build_prompt(data)
+    print("Requesting dark cinematic image from Hugging Face model:", HF_T2I_MODEL)
+    print("Prompt:", prompt)
+    print("Negative prompt:", neg_prompt)
 
-    # Optionally record path in JSON for downstream steps
+    image_bytes = call_hf_t2i(prompt, neg_prompt)
+
+    with out_path.open("wb") as f:
+        f.write(image_bytes)
+
     data["background_image_path"] = str(out_path)
-    with CURRENT_VERSE_JSON.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    save_current_verse(data)
 
+    print(f"Saved background image to {out_path}")
     print("Updated current_verse.json with background_image_path.")
 
 
