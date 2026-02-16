@@ -154,8 +154,9 @@ def main() -> int:
 
         resp = requests.get(img_url, timeout=30)
         resp.raise_for_status()
-        with out_path.open("wb", "wb") as f:
-            f.write(resp.content)
+        with out_path.open(mode="wb") as f:
+             f.write(resp.content)
+
 
         verse_data["image_path"] = str(out_path)
         save_current_verse(verse_data)
