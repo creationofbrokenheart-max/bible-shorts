@@ -6,7 +6,7 @@ from pathlib import Path
 from huggingface_hub import InferenceClient
 
 HF_TOKEN = os.getenv("HF_TOKEN")
-HF_MODEL = os.getenv("HF_MODEL", "mistralai/Mistral-7B-Instruct-v0.2")  # <= changed[web:104][web:109]
+HF_MODEL = os.getenv("HF_MODEL", "mistralai/Mistral-7B-Instruct-v0.2") 
 
 CURRENT_VERSE_JSON = Path("current_verse.json")
 
