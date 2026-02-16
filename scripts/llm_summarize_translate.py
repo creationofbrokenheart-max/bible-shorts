@@ -8,12 +8,8 @@ from openai import OpenAI  # OpenAI-compatible client
 CURRENT_VERSE_JSON = Path("current_verse.json")
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-# OpenRouter base URL
-OPENROUTER_BASE_URL = os.getenv(
-    "OPENROUTER_BASE_URL",
-    "https://openrouter.ai/api/v1",
-)
-# DeepSeek model id on OpenRouter[web:130]
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+# DeepSeek model on OpenRouter[web:130]
 DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek/deepseek-chat")
 
 
@@ -81,29 +77,38 @@ def call_deepseek_via_openrouter(prompt: str) -> dict:
     except Exception as e:
         print(f"Error calling DeepSeek via OpenRouter: {e}", file=sys.stderr)
         sys.exit(1)
-    
+
     content = completion.choices[0].message.content
-    
-    # Strip common Markdown code fences around JSON
+
+    # Strip Markdown fences if present (```json ... ```)
     content_stripped = content.strip()
     if content_stripped.startswith("```"):
-        # Remove leading ```json or ``` and trailing ```
-        content_stripped = content_stripped.lstrip("`")
-        # After lstrip, content may start with 'json' on first line; drop first line if it is 'json'
         lines = content_stripped.splitlines()
-        if lines and lines[0].strip().lower() in ("json",):
+        # drop first line if it's ``` or ```json
+        if lines and lines.strip().startswith("```"):
             lines = lines[1:]
-        content_stripped = "\n".join(lines)
-        # Remove any trailing ``` if present
-        content_stripped = content_stripped.strip("`").strip()
-    
+        # drop last line if it's ```
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        content_stripped = "\n".join(lines).strip()
+
     try:
         data = json.loads(content_stripped)
     except json.JSONDecodeError:
         print("Failed to parse LLM response as JSON. Raw content:", file=sys.stderr)
         print(content, file=sys.stderr)
         sys.exit(1)
-        return data
+
+    if not isinstance(data, dict):
+        print("LLM JSON root is not an object. Got:", type(data), file=sys.stderr)
+        sys.exit(1)
+
+    required_keys = {"summary_en", "summary_te", "title_te"}
+    if not required_keys.issubset(data.keys()):
+        print("LLM JSON missing required keys. Got keys:", list(data.keys()), file=sys.stderr)
+        sys.exit(1)
+
+    return data
 
 
 def main():
