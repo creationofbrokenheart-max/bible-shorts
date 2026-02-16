@@ -2,6 +2,7 @@
 requests
 huggingface_hub
 camb-sdk
+replicate
 
 # Excel reading (verses.xlsx)
 openpyxl
