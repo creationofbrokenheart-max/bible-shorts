@@ -96,10 +96,9 @@ def main() -> int:
             "[1:a]anull[a]"
         )
 
-        cmd_main = [
+         cmd_main = [
             "ffmpeg",
             "-y",
-            "-loop", "1",
             "-i", bg_path,
             "-i", audio_path,
             "-filter_complex", filter_complex,
@@ -110,9 +109,11 @@ def main() -> int:
             "-pix_fmt", "yuv420p",
             "-c:a", "aac",
             "-b:a", "192k",
+            "-t", "16",          # 6-second short regardless of TTS length
             "-shortest",
             str(tmp_main),
-        ]
+        ] 
+
 
         run_ffmpeg(cmd_main)
         os.replace(tmp_main, main_out)
