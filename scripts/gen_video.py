@@ -56,7 +56,8 @@ def main() -> int:
     try:
         data = load_current_verse()
 
-        required_keys = ["background_image_path", "audio_path", "reference", "verse","verse_text"]
+        # Only enforce what we know exists from earlier steps
+        required_keys = ["background_image_path", "audio_path", "reference"]
         missing = [k for k in required_keys if k not in data or not data[k]]
         if missing:
             raise ValueError(
@@ -66,7 +67,11 @@ def main() -> int:
         bg_path = str((BASE_DIR / data["background_image_path"]).resolve())
         audio_path = str((BASE_DIR / data["audio_path"]).resolve())
         reference = data["reference"]
-        verse = data["verse_text"]
+
+        # Verse text from either verse_text or verse
+        verse = data.get("verse_text") or data.get("verse") or ""
+        if not verse:
+            raise ValueError("current_verse.json has no verse text (verse_text/verse missing)")
 
         OUTPUT_VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
         TMP_DIR.mkdir(parents=True, exist_ok=True)
@@ -77,7 +82,7 @@ def main() -> int:
 
         overlay_text = ffmpeg_escape_text(verse)
 
-        # Background scaled + padded, then full verse as multi-line caption centered.[web:394][web:412]
+        # Scale + pad background, then full verse centered as multi-line caption.[web:394][web:412]
         filter_complex = (
             f"[0:v]scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=decrease,"
             f"pad={VIDEO_WIDTH}:{VIDEO_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black@0.0[base];"
@@ -91,7 +96,7 @@ def main() -> int:
         cmd_main = [
             "ffmpeg",
             "-y",
-            "-loop", "1",
+            "-loop", "1",          # still image as background
             "-i", bg_path,
             "-i", audio_path,
             "-filter_complex", filter_complex,
@@ -102,7 +107,7 @@ def main() -> int:
             "-pix_fmt", "yuv420p",
             "-c:a", "aac",
             "-b:a", "192k",
-            "-shortest",              # stop when audio ends
+            "-shortest",           # stop when audio ends
             str(tmp_main),
         ]
 
