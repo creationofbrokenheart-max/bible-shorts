@@ -3,15 +3,13 @@ import os
 import sys
 from pathlib import Path
 
-import requests
+from camb.client import CambAI
+from camb.types import StreamTtsOutputConfiguration  # [web:62]
 
 CURRENT_VERSE_JSON = Path("current_verse.json")
 OUTPUT_DIR = Path("outputs/audio")
 
-TTS_API_KEY = os.getenv("TTS_API_KEY")
-TTS_API_URL = os.getenv("TTS_API_URL")  # e.g. https://client.camb.ai/apis/tts
-TTS_VOICE_ID = os.getenv("TTS_VOICE_ID")  # required (147332 for your English voice)
-TTS_LANGUAGE = os.getenv("TTS_LANGUAGE")  # optional; default to 1 below
+CAMB_API_KEY = os.getenv("CAMB_API_KEY")  # set this in GitHub secrets
 
 
 def load_current_verse():
@@ -27,77 +25,11 @@ def save_current_verse(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def build_tts_payload(text_en: str) -> dict:
-    """
-    CAMB /apis/tts payload: requires text, voice_id, language.
-    folder_id must be > 0, age must be int.[web:58]
-    """
-    if not TTS_VOICE_ID:
-        print("TTS_VOICE_ID must be set for CAMB.AI TTS.", file=sys.stderr)
-        sys.exit(1)
-
-    # Default English language id to 1 if not provided
-    language_id = int(TTS_LANGUAGE) if TTS_LANGUAGE else 1
-
-    payload = {
-        "text": text_en,
-        "voice_id": int(TTS_VOICE_ID),
-        "language": language_id,
-        "project_name": "Bible English Shorts",
-        "project_description": "Automated Bible verse English voiceover",
-        "folder_id": 1,   # must be > 0[web:58]
-        "gender": 0,
-        "age": 30,        # integer, not string[web:58][web:62]
-    }
-    print(f"TTS payload being sent: {payload}")
-    return payload
-
-def call_tts_api(text_en: str) -> bytes:
-    if not TTS_API_KEY or not TTS_API_URL:
-        print("TTS_API_KEY or TTS_API_URL not set in environment.", file=sys.stderr)
-        sys.exit(1)
-
-    headers = {
-        "Content-Type": "application/json",
-        "x-api-key": TTS_API_KEY,
-    }
-
-    payload = build_tts_payload(text_en)
-    print(f"Calling TTS API at: {TTS_API_URL}")
-
-    try:
-        resp = requests.post(TTS_API_URL, headers=headers, json=payload, timeout=60)
-    except requests.RequestException as e:
-        print(f"Error calling TTS API: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    if resp.status_code != 200:
-        print(f"TTS API error {resp.status_code}: {resp.text}", file=sys.stderr)
-        sys.exit(1)
-
-    # For now, assume CAMB returns raw audio bytes or a direct audio file;
-    # if they return JSON with URL, we can extend this later.
-    content_type = resp.headers.get("Content-Type", "")
-    if "application/json" in content_type.lower():
-        data = resp.json()
-        audio_url = data.get("audio_url") or data.get("url")
-        if not audio_url:
-            print("No audio URL found in TTS JSON response.", file=sys.stderr)
-            sys.exit(1)
-        try:
-            audio_resp = requests.get(audio_url, timeout=60)
-        except requests.RequestException as e:
-            print(f"Error downloading audio file: {e}", file=sys.stderr)
-            sys.exit(1)
-        if audio_resp.status_code != 200:
-            print(f"Error downloading audio: {audio_resp.status_code}", file=sys.stderr)
-            sys.exit(1)
-        return audio_resp.content
-
-    return resp.content
-
-
 def main():
+    if not CAMB_API_KEY:
+        print("CAMB_API_KEY environment variable is not set.", file=sys.stderr)
+        sys.exit(1)
+
     data = load_current_verse()
     reference = data.get("reference")
     summary_en = data.get("summary_en")
@@ -109,14 +41,29 @@ def main():
         print("current_verse.json must contain 'summary_en' (English text).", file=sys.stderr)
         sys.exit(1)
 
-    audio_bytes = call_tts_api(summary_en)
+    client = CambAI(api_key=CAMB_API_KEY)  # [web:62]
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     safe_ref = reference.replace(" ", "_").replace(":", "-")
-    out_path = OUTPUT_DIR / f"{safe_ref}.mp3"
+    out_path = OUTPUT_DIR / f"{safe_ref}.wav"
 
-    with open(out_path, "wb") as f:
-        f.write(audio_bytes)
+    print(f"Calling CAMB TTS for: {summary_en}")
+
+    try:
+        with open(out_path, "wb") as f:
+            for chunk in client.text_to_speech.tts(
+                text=summary_en,
+                language="en-us",           # English, adjust later for Telugu[web:58][web:62]
+                voice_id=147332,            # your English voice id
+                speech_model="mars-flash",  # example model from docs[web:58][web:62]
+                output_configuration=StreamTtsOutputConfiguration(
+                    format="wav"
+                ),
+            ):
+                f.write(chunk)
+    except Exception as e:
+        print(f"Error calling CAMB TTS: {e}", file=sys.stderr)
+        sys.exit(1)
 
     print(f"Saved TTS audio to {out_path}")
 
