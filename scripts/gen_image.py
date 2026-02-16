@@ -1,10 +1,18 @@
 import json
+import os
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter  # pip install pillow
+import replicate  # pip install replicate
 
 CURRENT_VERSE_PATH = Path("current_verse.json")
 IMAGES_DIR = Path("outputs/images")
+
+REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
+# SDXL version ID from Replicate docs[web:287][web:293]
+SDXL_VERSION = os.getenv(
+    "REPLICATE_SDXL_VERSION",
+    "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b",
+)
 
 
 def load_current_verse():
@@ -29,22 +37,56 @@ def safe_ref(ref: str) -> str:
     )
 
 
-def build_base_image(width=1080, height=1920) -> Image.Image:
-    # Dark background with subtle vignette to highlight text
-    img = Image.new("RGB", (width, height), (5, 5, 10))
-    draw = ImageDraw.Draw(img)
+def build_prompt(data: dict) -> str:
+    reference = data.get("reference") or data.get("verse_ref") or ""
+    summary_en = data.get("summary_en") or data.get("verse_en") or ""
 
-    # Simple radial vignette
-    for i in range(0, max(width, height), 80):
-        alpha = int(255 * (i / max(width, height)))
-        draw.rectangle(
-            [i, i, width - i, height - i],
-            fill=(0, 0, 0),
-            outline=None,
-        )
+    prompt = (
+        f"cinematic bible illustration, ultra detailed, 4k, "
+        f"scene inspired by {reference} from the Bible, "
+        f"theme: {summary_en}, "
+        f"dark background, rich shadows, high contrast, moody lighting, "
+        f"dramatic light rays, volumetric lighting, no text, no watermark"
+    )
+    return prompt
 
-    img = img.filter(ImageFilter.GaussianBlur(radius=8))
-    return img
+
+def call_replicate_sdxl(prompt: str, output_path: Path):
+    if not REPLICATE_API_TOKEN:
+        raise RuntimeError("REPLICATE_API_TOKEN is not set.")
+
+    client = replicate.Client(api_token=REPLICATE_API_TOKEN)
+
+    print("Calling Replicate SDXL with prompt:")
+    print(prompt)
+
+    # SDXL input options from Replicate examples[web:292][web:295]
+    output = client.run(
+        SDXL_VERSION,
+        input={
+            "prompt": prompt,
+            "negative_prompt": "text, watermark, logo, words, letters, caption, lowres, blurry, distorted, ugly, oversaturated",
+            "width": 768,
+            "height": 1344,  # ~9:16
+            "num_inference_steps": 30,
+            "guidance_scale": 7.5,
+        },
+    )
+
+    # output is typically a list of URLs; download the first
+    if not output:
+        raise RuntimeError(f"Replicate SDXL returned empty output: {output}")
+
+    image_url = output[0]
+    print("Downloading image from:", image_url)
+
+    import requests
+
+    resp = requests.get(image_url, timeout=120)
+    resp.raise_for_status()
+
+    with output_path.open("wb") as f:
+        f.write(resp.content)
 
 
 def main():
@@ -58,10 +100,9 @@ def main():
     out_name = f"{safe_ref(ref)}.png"
     out_path = IMAGES_DIR / out_name
 
-    print("Creating local dark background image (no external API).")
-
-    img = build_base_image()
-    img.save(out_path, format="PNG", optimize=True)
+    prompt = build_prompt(data)
+    print("Generating verse-relevant image with Replicate SDXL...")
+    call_replicate_sdxl(prompt, out_path)
 
     data["background_image_path"] = str(out_path)
     save_current_verse(data)
