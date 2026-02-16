@@ -23,7 +23,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
-        # Equivalent to manual apt install.[web:90][web:93]
 
       - name: Install Python dependencies
         run: |
@@ -33,20 +32,19 @@ jobs:
       - name: Run pipeline (select, fetch, LLM, image, TTS, video, upload)
         env:
           # Bible API base URL
-          BIBLE_API_BASE: "https://bible-api.com"  # or your chosen API[web:14][web:16]
+          BIBLE_API_BASE: "https://bible-api.com"  # [web:14][web:16]
 
           # Hugging Face (LLM + image)
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          HF_BASE_URL: "https://router.huggingface.co/v1"  # LLM endpoint[web:22][web:24]
-          HF_MODEL: "meta-llama/Meta-Llama-3-8B-Instruct"   # or any supported chat model
+          # No HF_MODEL here – let the script default to mistral
           HF_T2I_MODEL: "stabilityai/stable-diffusion-xl-base-1.0"  # image model[web:57]
 
-          # TTS provider (fill these with your chosen service details)
+          # TTS provider (CAMB.AI or similar)
           TTS_API_KEY: ${{ secrets.TTS_API_KEY }}
           TTS_API_URL: ${{ secrets.TTS_API_URL }}
           TTS_VOICE_ID: ${{ secrets.TTS_VOICE_ID }}
 
-          # Optional: font path for drawtext (must exist on ubuntu image)
+          # Optional: font path for drawtext
           VIDEO_FONT_PATH: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
         run: |
           python scripts/select_verse.py
@@ -57,7 +55,7 @@ jobs:
           python scripts/gen_video.py
           python scripts/upload_youtube.py
 
-      # Optional: commit updates (e.g., if you later add status updates in verses.xlsx)
+      # Optional commit step if you later update verses.xlsx in code
       # - name: Commit verse status update
       #   run: |
       #     git config user.name "github-actions"
