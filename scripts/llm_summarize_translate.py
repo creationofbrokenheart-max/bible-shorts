@@ -81,31 +81,29 @@ def call_deepseek_via_openrouter(prompt: str) -> dict:
     except Exception as e:
         print(f"Error calling DeepSeek via OpenRouter: {e}", file=sys.stderr)
         sys.exit(1)
-
-content = completion.choices[0].message.content
-
-# Strip common Markdown code fences around JSON
-content_stripped = content.strip()
-if content_stripped.startswith("```"):
-    # Remove leading ```json or ``` and trailing ```
-    content_stripped = content_stripped.lstrip("`")
-    # After lstrip, content may start with 'json' on first line; drop first line if it is 'json'
-    lines = content_stripped.splitlines()
-    if lines and lines[0].strip().lower() in ("json",):
-        lines = lines[1:]
-    content_stripped = "\n".join(lines)
-    # Remove any trailing ``` if present
-    content_stripped = content_stripped.strip("`").strip()
-
-try:
-    data = json.loads(content_stripped)
-except json.JSONDecodeError:
-    print("Failed to parse LLM response as JSON. Raw content:", file=sys.stderr)
-    print(content, file=sys.stderr)
-    sys.exit(1)
-
-
-    return data
+    
+    content = completion.choices[0].message.content
+    
+    # Strip common Markdown code fences around JSON
+    content_stripped = content.strip()
+    if content_stripped.startswith("```"):
+        # Remove leading ```json or ``` and trailing ```
+        content_stripped = content_stripped.lstrip("`")
+        # After lstrip, content may start with 'json' on first line; drop first line if it is 'json'
+        lines = content_stripped.splitlines()
+        if lines and lines[0].strip().lower() in ("json",):
+            lines = lines[1:]
+        content_stripped = "\n".join(lines)
+        # Remove any trailing ``` if present
+        content_stripped = content_stripped.strip("`").strip()
+    
+    try:
+        data = json.loads(content_stripped)
+    except json.JSONDecodeError:
+        print("Failed to parse LLM response as JSON. Raw content:", file=sys.stderr)
+        print(content, file=sys.stderr)
+        sys.exit(1)
+        return data
 
 
 def main():
