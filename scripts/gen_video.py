@@ -102,33 +102,23 @@ def main():
     )
 
     cmd = [
-        "ffmpeg",
-        "-y",
-        "-loop",
-        "1",
-        "-i",
-        str(image_path),   # 0:v
-        "-i",
-        str(audio_file),   # 1:a
-        "-filter_complex",
-        filter_complex,
-        "-map",
-        "[v]",
-        "-map",
-        "[a]",
-        "-c:v",
-        "libx264",
-        "-tune",
-        "stillimage",
-        "-pix_fmt",
-        "yuv420p",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
-        "-shortest",
-        str(video_path),
-    ]
+    "ffmpeg",
+    "-y",
+    "-loop", "1",
+    "-i", str(image_path),
+    "-i", str(audio_file),
+    "-filter_complex", f"[0:v]{drawtext_filter}[v]",
+    "-map", "[v]",
+    "-map", "1:a",
+    "-c:v", "libx264",
+    "-tune", "stillimage",
+    "-pix_fmt", "yuv420p",
+    "-c:a", "aac",
+    "-b:a", "192k",
+    "-shortest",
+    str(video_path),
+]
+
 
     print("Running ffmpeg:", " ".join(cmd))
     subprocess.run(cmd, check=True)
