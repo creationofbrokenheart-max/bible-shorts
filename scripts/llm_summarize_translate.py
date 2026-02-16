@@ -13,7 +13,7 @@ HF_BASE_URL = os.getenv("HF_BASE_URL", "https://router.huggingface.co/v1")
 
 # Choose a sane default HF model id (you can change it later).
 # Any chat-instruct model available via router works, e.g. Llama-3.[web:22][web:24]
-HF_MODEL = os.getenv("HF_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct")
+HF_MODEL = os.getenv("HF_MODEL", "meta-llama/Meta-Llama-3.1-8B-Instruct")
 
 
 def load_current_verse():
